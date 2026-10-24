@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.2] - 2026-10-24
+
+### 诊断
+
+- 加文件级排障日志 `~/.dsh/followup-debug.log`（此前只有 console，桌面端不可见）：
+  boot 配置快照、pre-step 用户文本抓取（buf# + 长度 + 前 40 字符）、
+  assistant-stream 帧型首见/结束长度、idle 判定（跳过原因含实际长度）、
+  生成路由/结果/失败全文。每个 buffer 带编号——pre-step 与 idle 的
+  buf# 对不上即坐实 WeakMap 按 agent 分裂。
+- 背景：真机 `/latest` 恒为 `seq:0`（一次生成都没发生过），事件契约
+  对照 dsh-reference 无变化（dispatch 自动注入 agent），需运行时留痕定位。
+
 ## [0.1.1] - 2026-10-24
 
 ### 变更

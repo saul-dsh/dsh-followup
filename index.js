@@ -28,8 +28,21 @@
  */
 
 import Schema from '@deepseek-ai/schemastery'
+import { appendFile, mkdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 export const name = 'followup'
+
+const DIAG_LOG = join(homedir(), '.dsh', 'followup-debug.log')
+
+/** 每环节一行落盘：事件是否到、文本抓没抓到、生成成没成，一次复现即可定位断点。 */
+const report = async (line) => {
+  try {
+    await mkdir(dirname(DIAG_LOG), { recursive: true })
+    await appendFile(DIAG_LOG, `${new Date().toISOString()} ${line}\n`, 'utf8')
+  } catch { /* ignore */ }
+}
 
 export const inject = ['llm']
 
@@ -108,13 +121,21 @@ function parseSuggestions(text, count) {
 export function apply(ctx, config) {
   if (!config.enabled) return
 
+  void report(`server boot v0.1.2 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
+
   /** 每个 agent 的对话尾部累积：userText 来自 pre-step，assistantText 来自流帧。 */
   const buffers = new WeakMap()
+  const seenFrameTypes = new Set()
+  let bufCounter = 0
+  const agentConstructorName = (agent) => (agent === undefined || agent === null
+    ? 'none'
+    : `${agent.constructor?.name ?? typeof agent}`)
   const bufferOf = (agent) => {
     let buf = buffers.get(agent)
     if (buf === undefined) {
-      buf = { userText: '', assistantText: '', controller: null }
+      buf = { id: ++bufCounter, userText: '', assistantText: '', controller: null }
       buffers.set(agent, buf)
+      void report(`buffer new #${buf.id} for agent=${agentConstructorName(agent)}`)
     }
     return buf
   }
@@ -180,17 +201,26 @@ export function apply(ctx, config) {
     buf.assistantText = ''
     // 用户已经开始说下一句：上一份没生成的建议直接作废。
     cancelPending(buf, 'superseded by next user message')
+    void report(`pre-step buf#${buf.id} agent=${agentConstructorName(agent)} msgs=${messages.length} userLen=${(buf.userText ?? '').length} userHead=${JSON.stringify((buf.userText ?? '').slice(0, 40))}`)
     return next()
   })
 
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     const buf = bufferOf(agent)
+    if (frame?.type && !seenFrameTypes.has(frame.type)) {
+      seenFrameTypes.add(frame.type)
+      void report(`stream frame-type first-seen: ${frame.type} agent=${agentConstructorName(agent)}`)
+    }
     if (frame?.type === 'start') { buf.assistantText = ''; return }
     const chunk = frame?.type === 'chunk' ? frame.chunk : null
     if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
       buf.assistantText += chunk.text
       // 超长回复只保留尾部，控制内存。
       if (buf.assistantText.length > 20000) buf.assistantText = buf.assistantText.slice(-10000)
+      return
+    }
+    if (frame?.type === 'end') {
+      void report(`stream end buf#${buf.id} agent=${agentConstructorName(agent)} assistantLen=${(buf.assistantText ?? '').length}`)
     }
   })
 
@@ -204,7 +234,10 @@ export function apply(ctx, config) {
     }
     const userText = (buf.userText ?? '').trim()
     const assistantText = (buf.assistantText ?? '').trim()
-    if (!userText || assistantText.length < config.minAssistantChars) return
+    if (!userText || assistantText.length < config.minAssistantChars) {
+      void report(`idle skip buf#${buf.id} agent=${agentConstructorName(agent)} userLen=${userText.length} assistantLen=${assistantText.length} (need user>0 & assistant>=${config.minAssistantChars})`)
+      return
+    }
     // 缓冲片刻：多步回合的步骤之间也会闪现 idle，期间回到 running 就作废。
     if (pendingTimer) clearTimeout(pendingTimer)
     pendingTimer = setTimeout(() => {
@@ -247,20 +280,31 @@ export function apply(ctx, config) {
 
   async function generateFor(agent, buf, userText, assistantText) {
     const route = resolveRoute(agent)
-    if (!route) { say('info', 'no model route available, skip'); return }
+    if (!route) {
+      say('info', 'no model route available, skip')
+      void report('generate skip: no model route (config unset, agent.options empty, agentDefaultModel missing)')
+      return
+    }
     const controller = new AbortController()
     buf.controller = controller
     const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
     try {
+      void report(`generate start route=${route.provider}/${route.model} userLen=${userText.length} assistantLen=${assistantText.length}`)
       const suggestions = await runGeneration(route, userText, assistantText, controller.signal)
       if (suggestions.length) {
         lastContext = { route, userText, assistantText }
         latest = { seq: ++seqCounter, suggestions }
         say('info', `turn ${latest.seq}: ${suggestions.length} suggestions`)
+        void report(`generate ok seq=${latest.seq} count=${suggestions.length} ${JSON.stringify(suggestions)}`)
+      } else {
+        void report('generate empty: model returned no parseable suggestions')
       }
     } catch (err) {
       if (!/aborted|superseded|timeout/i.test(String(err?.message ?? err))) {
         say('error', `generate failed: ${err?.message ?? err}`)
+        void report(`generate failed: ${String(err?.message ?? err).slice(0, 300)}`)
+      } else {
+        void report(`generate aborted: ${String(err?.message ?? err).slice(0, 120)}`)
       }
     } finally {
       clearTimeout(timer)
