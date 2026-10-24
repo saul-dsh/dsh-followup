@@ -1,0 +1,52 @@
+{
+  "name": "dsh-followup",
+  "version": "0.1.0",
+  "description": "Trae-style smart follow-up suggestions for the DeepSeek Harness (dsh) composer: after each assistant turn, a lightweight model call proposes 2-3 short next prompts, shown as clickable chips above the input. Clicking fills the draft, never auto-sends.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "followup",
+    "suggestions",
+    "cordis"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saul-dsh/dsh-followup.git"
+  },
+  "homepage": "https://github.com/saul-dsh/dsh-followup#readme",
+  "bugs": {
+    "url": "https://github.com/saul-dsh/dsh-followup/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

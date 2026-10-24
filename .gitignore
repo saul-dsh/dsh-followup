@@ -1,0 +1,15 @@
+# WorkBuddy 会话数据（勿提交）
+.workbuddy/
+
+# Mimosa 安全扫描会话状态（可再生）
+.mimosa/
+
+# Node / npm
+node_modules/
+npm-debug.log*
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
