@@ -13,7 +13,8 @@ Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant 
   [ Write option 2, but add more of the male lead → ]  [ Start with option 1 → ]  ↻  ✕
   ```
 
-- **Click a chip**: the full sentence is placed into the draft for editing — **never auto-sent**
+- **Click the body / arrow**: sends the suggestion immediately as a new message (tooltip "Send") — the full sentence flashes in the composer first, so you always see what is being sent
+- **Click the speech-bubble icon**: only fills the draft for editing (tooltip "Add to conversation")
 - **↻ refresh**: regenerate from the same turn's context
 - **✕ dismiss**: hide for this turn
 - Chips disappear as soon as you type or send
