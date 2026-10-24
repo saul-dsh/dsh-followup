@@ -28,13 +28,15 @@
  */
 
 import Schema from '@deepseek-ai/schemastery'
-import { appendFile, mkdir } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 export const name = 'followup'
 
 const DIAG_LOG = join(homedir(), '.dsh', 'followup-debug.log')
+const SESSIONS_ROOT = join(homedir(), '.dsh', 'sessions')
+const PROFILES_ROOT = join(homedir(), '.dsh', 'profiles')
 
 /** 每环节一行落盘：事件是否到、文本抓没抓到、生成成没成，一次复现即可定位断点。 */
 const report = async (line) => {
@@ -42,6 +44,99 @@ const report = async (line) => {
     await mkdir(dirname(DIAG_LOG), { recursive: true })
     await appendFile(DIAG_LOG, `${new Date().toISOString()} ${line}\n`, 'utf8')
   } catch { /* ignore */ }
+}
+
+/* ------------------------------------------------------------------ */
+/* 会话日志直读（新架构进程分裂后 agent/* 事件到不了插件进程，           */
+/* 0.2.0 起改为日志驱动：解压 session.v4.jsonl.zstd 取最后一轮文本）    */
+/* ------------------------------------------------------------------ */
+
+/** 多帧 zstd（追加写每帧独立）：按魔数切段逐帧解压，坏帧跳过。 */
+async function decompressLog(file) {
+  const zlib = await import('node:zlib')
+  if (typeof zlib.zstdDecompressSync !== 'function') {
+    throw new Error('node zlib 无 zstd 支持（需 Node ≥23.8）')
+  }
+  const buf = await readFile(file)
+  const MAGIC = 0x28
+  const idxs = [0]
+  for (let i = 4; i <= buf.length - 4; i += 1) {
+    if (buf[i] === MAGIC && buf[i + 1] === 0xB5 && buf[i + 2] === 0x2F && buf[i + 3] === 0xFD) idxs.push(i)
+  }
+  let out = ''
+  for (let k = 0; k < idxs.length; k += 1) {
+    try {
+      out += zlib.zstdDecompressSync(buf.subarray(idxs[k], idxs[k + 1] ?? buf.length)).toString('utf8')
+    } catch { /* 截断/坏帧跳过 */ }
+  }
+  return out
+}
+
+/** 找会话日志文件：目录名可能是裸 uuid 或 session-<uuid>。 */
+async function findSessionFile(sessionId) {
+  const bare = String(sessionId).replace(/^session-/, '')
+  let workspaces = []
+  try { workspaces = await readdir(SESSIONS_ROOT, { withFileTypes: true }) } catch { return null }
+  for (const ws of workspaces) {
+    if (!ws.isDirectory()) continue
+    for (const name of [sessionId, `session-${bare}`, bare]) {
+      const file = join(SESSIONS_ROOT, ws.name, name, 'session.v4.jsonl.zstd')
+      try { await readFile(file); return file } catch { /* 尝试下一个 */ }
+    }
+  }
+  return null
+}
+
+/** 从持久日志提取最后一轮：最后一个真实用户消息 + 其后最后的助手文本。 */
+async function lastTurnFromLog(sessionId) {
+  const file = await findSessionFile(sessionId)
+  if (!file) return null
+  const text = await decompressLog(file)
+  const events = []
+  for (const line of text.split('\n')) {
+    if (line.length === 0) continue
+    try { events.push(JSON.parse(line)) } catch { /* 半行跳过 */ }
+  }
+  const isRealUser = (e) => e?.type === 'user/message'
+    && e.data?.source?.kind === 'user'
+    && Array.isArray(e.data.content) && e.data.content.length === 1
+    && e.data.content[0]?.type === 'text' && typeof e.data.content[0].text === 'string'
+  const isAssistant = (e) => e?.type === 'assistant/message'
+  let assistantText = null
+  let userText = null
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i]
+    if (assistantText === null && isAssistant(e)) {
+      const blocks = e.data?.message?.content
+      if (Array.isArray(blocks)) {
+        const joined = blocks.filter((b) => b?.type === 'text' && typeof b.text === 'string')
+          .map((b) => b.text).join('')
+        if (joined.trim().length > 0) assistantText = joined
+      }
+      continue
+    }
+    if (assistantText !== null && isRealUser(e)) {
+      userText = e.data.content[0].text
+      break
+    }
+  }
+  if (userText === null || assistantText === null) return null
+  return { userText: userText.trim(), assistantText: assistantText.trim() }
+}
+
+/** 从 profile 用户补丁层读 agent-default-model 的 provider/model（兜底路由）。 */
+async function patchDefaultRoute() {
+  let profiles = []
+  try { profiles = await readdir(PROFILES_ROOT, { withFileTypes: true }) } catch { return null }
+  for (const p of profiles) {
+    if (!p.isDirectory()) continue
+    try {
+      const raw = await readFile(join(PROFILES_ROOT, p.name, 'cordis.patch.yml'), 'utf8')
+      const m = raw.match(/id:\s*agent-default-model[\s\S]{0,300}?provider:\s*(\S+)[\s\S]{0,120}?model:\s*(\S+)/)
+      if (m) return { provider: m[1].replace(/^['"]|['"]$/g, ''), model: m[2].replace(/^['"]|['"]$/g, '') }
+    } catch { /* 下一个 profile */ }
+  }
+  return null
 }
 
 export const inject = ['llm']
@@ -333,17 +428,45 @@ export function apply(ctx, config) {
           return
         }
 
-        // 换一批：用最近一轮的上下文重新生成一次。
-        if (path === '/refresh' && req.method === 'POST') {
-          if (!lastContext) { send(409, { error: 'no-context' }); return }
+        /**
+         * 日志驱动生成（0.2.0 主通道）：客户端回合落定后带 sessionId 调用，
+         * 服务端直读会话日志取最后一轮，再走 llm.stream 生成。
+         * 新架构下 agent/* 事件到不了插件进程，这是唯一可靠通道。
+         */
+        if ((path === '/generate' || path === '/refresh') && req.method === 'POST') {
+          let body = ''
+          for await (const chunk of req) body += chunk
+          let sessionId = ''
+          try { sessionId = JSON.parse(body).sessionId ?? '' } catch { sessionId = '' }
+          if (!sessionId) { send(400, { error: 'missing sessionId' }); return }
+          const turn = await lastTurnFromLog(sessionId)
+          if (!turn) {
+            void report(`generate(log) ${path}: no usable turn in session ${String(sessionId).slice(0, 50)}`)
+            send(409, { error: 'no-turn' })
+            return
+          }
+          const route = configRoute() ?? defaultRoute() ?? await patchDefaultRoute()
+          if (!route) {
+            void report('generate(log): no route (config/agentDefaultModel/patch all missing)')
+            send(503, { error: 'no-route' })
+            return
+          }
           const controller = new AbortController()
           const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
           try {
-            const suggestions = await runGeneration(lastContext.route, lastContext.userText, lastContext.assistantText, controller.signal)
-            if (!suggestions.length) { send(502, { error: 'generate-failed' }); return }
+            void report(`generate(log) start route=${route.provider}/${route.model} userLen=${turn.userText.length} assistantLen=${turn.assistantText.length}`)
+            const suggestions = await runGeneration(route, turn.userText, turn.assistantText, controller.signal)
+            if (!suggestions.length) {
+              void report('generate(log) empty')
+              send(502, { error: 'generate-failed' })
+              return
+            }
+            lastContext = { route, ...turn }
             latest = { seq: ++seqCounter, suggestions }
+            void report(`generate(log) ok seq=${latest.seq} ${JSON.stringify(suggestions)}`)
             send(200, latest)
-          } catch {
+          } catch (err) {
+            void report(`generate(log) failed: ${String(err?.message ?? err).slice(0, 200)}`)
             send(502, { error: 'generate-failed' })
           } finally {
             clearTimeout(timer)

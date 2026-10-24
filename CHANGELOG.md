@@ -2,6 +2,26 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-10-24
+
+### 重构：日志驱动生成（修复新架构下建议从不出现）
+
+dsh 桌面端更新后 webServer 进程收不到任何 `agent/*` 事件（0.1.2
+诊断日志实证整轮对话零事件、旧事件链完全失效）。0.2.0 放弃事件监听
+作为主通道，改为：
+
+- 客户端回合落定后 `POST /generate {sessionId}`；服务端**直读持久会话
+  日志**（`~/.dsh/sessions/<工作区>/<会话>/session.v4.jsonl.zstd`，
+  多帧 zstd 按魔数分帧解压、坏帧跳过），提取最后一个真实用户消息
+  （source.kind==='user' 单文本块）与其后最后的助手文本，再走
+  `ctx.llm.stream` 生成建议（llm 服务在插件进程可用，实测 503 的只有
+  agents/compaction）。
+- 模型路由链：插件 config → agentDefaultModel 服务 → 解析 profile
+  用户补丁层的 `agent-default-model` 配置兜底。
+- `/refresh` 同样改为带 sessionId 的日志驱动重生成；旧的无上下文
+  兜底分支移除。
+- 旧事件监听保留（运行时回到单进程架构时自动恢复工作，日志可见）。
+
 ## [0.1.2] - 2026-10-24
 
 ### 诊断

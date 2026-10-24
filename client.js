@@ -209,7 +209,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 输入框上方的建议 chip 条；只在「草稿为空 + 有新建议」时渲染。 */
-    function FollowupChips({ useInput, inputActions }) {
+    function FollowupChips({ useInput, inputActions, sessionId }) {
       const draft = useInput((state) => state.draft)
       const [items, setItems] = React.useState(null)
       const shownSeq = React.useRef(0)
@@ -224,13 +224,19 @@ window.__ModuleLoader__.load({
       }, [draft])
 
       const load = React.useCallback(async () => {
-        if (!inputActions) return
-        const data = await fetchJson('/latest')
+        if (!inputActions || !sessionId) return
+        // 0.2.0：日志驱动生成——服务端直读会话日志取最后一轮，不再依赖
+        // 到不了插件进程的 agent 事件。
+        const data = await fetchJson('/generate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        })
         if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
         if (data.seq === shownSeq.current) return
         shownSeq.current = data.seq
         setItems(data.suggestions)
-      }, [inputActions])
+      }, [inputActions, sessionId])
 
       const loadRef = React.useRef(load)
       loadRef.current = load
@@ -239,7 +245,12 @@ window.__ModuleLoader__.load({
       })
 
       const refresh = async () => {
-        const data = await fetchJson('/refresh', { method: 'POST' })
+        if (!sessionId) return
+        const data = await fetchJson('/refresh', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        })
         if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
         shownSeq.current = data.seq
         setItems(data.suggestions)
@@ -325,7 +336,7 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.1.2 active')
+        console.info('[dsh-followup] client 0.2.0 active')
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'dsh-followup',
