@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
   gap: 8px;
   max-width: 100%;
   height: 36px;
-  padding: 0 8px 0 12px;
+  padding: 0 6px 0 12px;
   border: none;
   border-radius: var(--dsw-radius-md, 12px);
   background: rgba(255, 255, 255, 0.05);
@@ -74,29 +74,39 @@ window.__ModuleLoader__.load({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 箭头没有底色，就是一枚图标 */
+/* 箭头平时无底色；卡片 hover 时提亮，图标自己 hover 时出圆角底 */
 .dsh-followup-send {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--dsw-radius-sm, 8px);
   color: rgba(255, 255, 255, 0.55);
-  transition: color 120ms ease;
+  transition: background 120ms ease, color 120ms ease;
 }
-.dsh-followup-item:hover .dsh-followup-send { color: #e5e5e5; }
+.dsh-followup-item:hover .dsh-followup-send { color: rgba(255, 255, 255, 0.78); }
+.dsh-followup-item .dsh-followup-send:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #ffffff;
+}
 .dsh-followup-add {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--dsw-radius-sm, 8px);
   color: rgba(255, 255, 255, 0.62);
-  transition: color 120ms ease;
+  transition: background 120ms ease, color 120ms ease;
 }
-.dsh-followup-add:hover { color: #f0f0f0; }
+.dsh-followup-item:hover .dsh-followup-add { color: rgba(255, 255, 255, 0.80); }
+.dsh-followup-item .dsh-followup-add:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #ffffff;
+}
 `
 
     function ensureStyle() {
@@ -310,7 +320,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dsh-followup-text' }, text),
             // 右侧「发送」：独立的浅色方块，和 Trae 一致
             h('span', { className: 'dsh-followup-send' },
-              h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
+              h('svg', { viewBox: '0 0 16 16', width: 15, height: 15, 'aria-hidden': true },
                 h('path', { d: 'M4.5 11.5L11.5 4.5M6.8 4.5h4.7v4.7', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
             // 「添加到对话」：只填草稿，所以要挡住冒泡，避免顺带发送
             h('span', {
@@ -318,7 +328,7 @@ window.__ModuleLoader__.load({
               title: '添加到对话',
               onClick: (event) => { event.stopPropagation(); addToDraft(text) },
             },
-            h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true },
+            h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true },
               h('path', {
                 d: 'M8 2.5c3.1 0 5.7 2.1 5.7 4.8S11.1 12.1 8 12.1c-.8 0-1.5-.1-2.2-.4L3.4 13l.7-2.2C2.8 9.9 2.3 8.7 2.3 7.3c0-2.7 2.6-4.8 5.7-4.8z',
                 fill: 'none', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linejoin': 'round',
