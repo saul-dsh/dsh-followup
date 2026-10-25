@@ -216,7 +216,7 @@ function parseSuggestions(text, count) {
 export function apply(ctx, config) {
   if (!config.enabled) return
 
-  void report(`server boot v0.1.2 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
+  void report(`server boot v0.2.0 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
 
   /** 每个 agent 的对话尾部累积：userText 来自 pre-step，assistantText 来自流帧。 */
   const buffers = new WeakMap()
@@ -343,9 +343,9 @@ export function apply(ctx, config) {
 
   /* -- 生成 --------------------------------------------------------- */
 
-  async function runGeneration(route, userText, assistantText, signal) {
+  async function runGeneration(llm, route, userText, assistantText, signal) {
     const count = Math.min(3, Math.max(2, Math.round(config.maxSuggestions)))
-    const iterator = ctx.llm.stream({
+    const iterator = llm.stream({
       provider: route.provider,
       model: route.model,
       messages: [{ role: 'user', content: [{ type: 'text', text: buildPrompt(userText, assistantText, count, config) }] }],
@@ -385,7 +385,7 @@ export function apply(ctx, config) {
     const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
     try {
       void report(`generate start route=${route.provider}/${route.model} userLen=${userText.length} assistantLen=${assistantText.length}`)
-      const suggestions = await runGeneration(route, userText, assistantText, controller.signal)
+      const suggestions = await runGeneration(ctx.llm, route, userText, assistantText, controller.signal)
       if (suggestions.length) {
         lastContext = { route, userText, assistantText }
         latest = { seq: ++seqCounter, suggestions }
@@ -410,7 +410,10 @@ export function apply(ctx, config) {
   /* -- web 端点 ------------------------------------------------------ */
 
   // 可选注入：CLI / TUI 等没有 webServer 的宿主照常加载，只是没有 chips。
-  ctx.inject(['webServer'], (webCtx) => {
+  // llm 必须在此作用域声明——cordis 的属性访问按作用域校验 inject，
+  // 根作用域的静态 inject 不传导进嵌套作用域（真机实测报
+  // cannot get property "llm" without inject）。
+  ctx.inject(['webServer', 'llm'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'prefix',
       path: '/api/dsh-followup',
@@ -455,7 +458,7 @@ export function apply(ctx, config) {
           const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
           try {
             void report(`generate(log) start route=${route.provider}/${route.model} userLen=${turn.userText.length} assistantLen=${turn.assistantText.length}`)
-            const suggestions = await runGeneration(route, turn.userText, turn.assistantText, controller.signal)
+            const suggestions = await runGeneration(webCtx.llm, route, turn.userText, turn.assistantText, controller.signal)
             if (!suggestions.length) {
               void report('generate(log) empty')
               send(502, { error: 'generate-failed' })
