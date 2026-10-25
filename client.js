@@ -204,12 +204,11 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { setItems(null) }, [inputActions])
 
       // 0.2.4：会话打开/切换时拉一次持久化建议——重启后打开对话仍然显示
-      // 最近一轮的建议（10 分钟内新鲜才显示，服务端同窗校验）。
+      // 最近一轮的建议（Trae 逻辑：随会话持久化，无时间过期，下一轮替换）。
       const fetchLatest = React.useCallback(async () => {
         if (!inputActions || !sessionId) return
         const data = await fetchJson(`/latest?sessionId=${encodeURIComponent(sessionId)}`)
         if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
-        if (!data.at || Date.now() - data.at > 10 * 60_000) return
         if (data.seq === shownSeq.current) return
         shownSeq.current = data.seq
         setItems(data.suggestions)
@@ -230,7 +229,12 @@ window.__ModuleLoader__.load({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ sessionId }),
         })
-        if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
+        // Trae 逻辑：建议属于本轮响应——本轮没有新建议（生成失败/为空/
+        // 无可跟进内容）就清掉旧建议，而不是继续显示上一轮的。
+        if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) {
+          setItems(null)
+          return
+        }
         if (data.seq === shownSeq.current) return
         shownSeq.current = data.seq
         setItems(data.suggestions)
@@ -320,7 +324,7 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.2.4 active')
+        console.info('[dsh-followup] client 0.2.5 active')
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'dsh-followup',

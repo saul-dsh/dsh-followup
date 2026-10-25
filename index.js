@@ -53,8 +53,6 @@ const DIAG_LOG = join(homedir(), '.dsh', 'followup-debug.log')
 const SESSIONS_ROOT = join(homedir(), '.dsh', 'sessions')
 const PROFILES_ROOT = join(homedir(), '.dsh', 'profiles')
 const SUGGEST_FILE = join(homedir(), '.dsh', 'followup-suggestions.json')
-/** 建议展示的新鲜窗口：超出后打开会话不再显示（防陈年旧建议）。 */
-const SUGGEST_FRESH_MS = 10 * 60_000
 
 /** 每环节一行落盘：事件是否到、文本抓没抓到、生成成没成，一次复现即可定位断点。 */
 const report = async (line) => {
@@ -286,6 +284,14 @@ export function apply(ctx, config) {
     }
     void writeFile(SUGGEST_FILE, `${JSON.stringify(persisted)}\n`, 'utf8')
       .catch(() => { /* 持久化失败不影响主流程 */ })
+  }
+
+  /** Trae 逻辑：建议属于「每轮响应」——本轮没有新建议就清掉该会话的旧建议。 */
+  function clearSuggestions(sessionId) {
+    if (!sessionId || !(sessionId in persisted)) return
+    delete persisted[sessionId]
+    void writeFile(SUGGEST_FILE, `${JSON.stringify(persisted)}\n`, 'utf8')
+      .catch(() => { /* ignore */ })
   }
 
   const say = (level, message) => {
@@ -584,14 +590,12 @@ export function apply(ctx, config) {
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-followup/, '')
 
         // 客户端在每次「生成中 → 空闲」后拉取；seq 相同就静默忽略。
-        // 0.2.4：带 ?sessionId= 时优先返回该会话持久化的建议（重启后打开
-        // 会话仍能拿到最近一轮），过期（>10min）回落全局 latest。
+        // Trae 逻辑：建议随会话持久化、无时间过期，只被下一轮替换或清除。
         if (path === '/latest' && req.method === 'GET') {
           const qs = new URL(req.url ?? '', 'http://local').searchParams
           const wantSession = qs.get('sessionId') ?? ''
           const entry = wantSession ? persisted[wantSession] : undefined
-          if (entry && Array.isArray(entry.suggestions) && entry.suggestions.length > 0
-            && Date.now() - entry.at <= SUGGEST_FRESH_MS) {
+          if (entry && Array.isArray(entry.suggestions) && entry.suggestions.length > 0) {
             send(200, entry)
             return
           }
@@ -616,6 +620,8 @@ export function apply(ctx, config) {
             : await lastTurnFromLog(sessionId)
           if (!turn) {
             void report(`generate(${cached ? 'cache' : 'log'}) ${path}: no usable turn in session ${String(sessionId).slice(0, 50)}`)
+            // Trae 逻辑：建议属于每轮响应——本轮拿不到可跟进内容即清掉旧建议
+            clearSuggestions(String(sessionId))
             send(409, { error: 'no-turn' })
             return
           }
@@ -633,6 +639,8 @@ export function apply(ctx, config) {
             const suggestions = await runGeneration(webCtx.llm, route, turn.userText, turn.assistantText, controller.signal)
             if (!suggestions.length) {
               void report(`generate(${source}) empty`)
+              // 同上：本轮生成失败/为空，旧建议不再属于最新一轮
+              clearSuggestions(String(sessionId))
               send(502, { error: 'generate-failed' })
               return
             }
