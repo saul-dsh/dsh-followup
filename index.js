@@ -496,6 +496,9 @@ export function apply(ctx, config) {
     // 标记即透传——建议生成的 prompt 不会被误缓存为对话轮。
     // reasoningEffort low + maxTokens 2000：真机 04:50 实测 profile 默认
     // high 推理把 600 上限全部烧光（raw len=0 → 无建议渲染）。
+    // 给 dsh-cost 打来源标记：建议生成的费用单独归类，不混进对话。
+    globalThis.__dshPluginCall = { source: 'followup', at: Date.now() }
+
     const iterator = llmDepth.run(1, () => llm.stream({
       provider: route.provider,
       model: route.model,

@@ -1,6 +1,6 @@
 {
   "name": "dsh-followup",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Trae-style smart follow-up suggestions for the DeepSeek Harness (dsh) composer: after each assistant turn, a lightweight model call proposes 2-3 short next prompts, shown as clickable chips above the input. Clicking fills the draft, never auto-sends.",
   "type": "module",
   "main": "index.js",

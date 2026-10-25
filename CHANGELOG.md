@@ -2,6 +2,12 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-10-25
+
+### 新增
+
+- 发起建议生成前写 `globalThis.__dshPluginCall = { source: 'followup', at }`，让 `dsh-cost` 把建议开销单独归类。
+
 ## [0.3.0] - 2026-10-25
 
 ### 挂载位置完全对齐 Trae
