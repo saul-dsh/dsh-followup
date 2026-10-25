@@ -6,15 +6,28 @@
  * 的 chip，点击把建议填进草稿（不自动发送）。
  *
  * 工作原理（服务端半）：
- *   只读运行时事件拼出「最近一轮」的对话尾部，不修改任何消息：
- *   - agent/pre-step：用户消息进入步骤 → 记下用户文本，清空助手累积，
- *     并取消还没完成的上一份生成（用户已经开始说下一句了）
- *   - agent/assistant-stream：累积助手文本增量（start 帧重置，重试不串味）
- *   - agent/status → idle：回合落定（没有驱动器在跑）。延迟缓冲片刻再
- *     生成，缓冲期内 agent 回到 running（工具链下一步）就自动作废，
- *     避免在多步回合的中间步骤上浪费调用
+ *   主通道（0.2.3 起，借鉴 dsh-cost-meter 的链尾监听模式）：
+ *   - ctx.on('llm/stream', listener, { global: true })：llm 服务的瀑布事件，
+ *     每次 ctx.llm.stream() 都会经过。监听器拿到下游流后包一层旁路观察
+ *     （逐 chunk 透传，不改流协议），累积 text-delta 得到助手回复；
+ *     options.sessionId（GenerateOptions.sessionId，dsh-reference types.ts）
+ *     关联会话，options.messages 里最后一个真实用户消息作为本轮输入。
+ *     { global: true } 让监听器收到隔离 llm 作用域（记忆插件等）的流。
+ *     AsyncLocalStorage 深度标记排除两类重复捕获：包装路由插件在自己
+ *     stream() 体内再发起的上游调用（pull 下游时打标记），以及本插件
+ *     自己发起的建议生成调用（发起时打标记）。
+ *   回落通道：
+ *   - 客户端回合落定后 POST /generate {sessionId}；服务端优先用 llm/stream
+ *     实时捕获的缓存（10 分钟内），未命中才解压 session.v4.jsonl.zstd 直读
+ *     （日志驱动，0.2.0 引入，对新架构进程分裂免疫）
+ *   旧架构事件监听（agent/pre-step / assistant-stream / status）保留：
+ *   收不到事件的宿主上它们是死代码，旧版本 dsh 上仍可用。
  *
  * 已核对的 dsh API（deepseek-ai/deepseek-harness，对照 dsh-reference）：
+ *   - ctx.on('llm/stream', (options, next) => AsyncIterable, { global: true })
+ *     监听器契约：必须调用 next() 推进瀑布并返回（包装的）流；嵌套/排除
+ *     时原样返回 next() 的下游
+ *   - GenerateOptions.sessionId?: Branded<'SessionId'>（packages/llm/llm/src/types.ts）
  *   - ctx.on('agent/status', ({ agent, status }) => ...)   // idle ⇄ running
  *   - ctx.on('agent/pre-step', async ({ agent, messages }, next) => PreStepDecision)
  *   - ctx.on('agent/assistant-stream', ({ agent, frame }) => ...)
@@ -28,6 +41,7 @@
  */
 
 import Schema from '@deepseek-ai/schemastery'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -216,7 +230,7 @@ function parseSuggestions(text, count) {
 export function apply(ctx, config) {
   if (!config.enabled) return
 
-  void report(`server boot v0.2.0 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
+  void report(`server boot v0.2.3 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
 
   /** 每个 agent 的对话尾部累积：userText 来自 pre-step，assistantText 来自流帧。 */
   const buffers = new WeakMap()
@@ -258,6 +272,16 @@ export function apply(ctx, config) {
     return block && block.type === 'text' && typeof block.text === 'string' ? block.text : null
   }
 
+  /** llm/stream 捕获用：请求 messages 里最后一个真实用户文本。 */
+  function singleTextOfLastUser(messages) {
+    if (!Array.isArray(messages)) return null
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const text = singleTextOf(messages[i])
+      if (text !== null) return text
+    }
+    return null
+  }
+
   function defaultRoute() {
     const defaults = ctx.get('agentDefaultModel')
     const selection = defaults?.currentSelection?.()
@@ -285,7 +309,9 @@ export function apply(ctx, config) {
     }
   }
 
-  /* -- 事件监听：拼出对话尾部 --------------------------------------- */
+  /* -- 事件监听：拼出对话尾部（旧架构回落通道） ---------------------- */
+  /* 新架构进程分裂下这些 agent/* 事件到不了插件进程（0.1.x 实证零事件），
+     保留是为了旧版本 dsh 仍然可用；新架构走上面的 llm/stream 捕获 + 日志回落。 */
 
   ctx.on('agent/pre-step', async ({ agent, messages }, next) => {
     const buf = bufferOf(agent)
@@ -341,17 +367,105 @@ export function apply(ctx, config) {
     }, Math.max(200, config.idleDelayMs))
   })
 
+  /* -- 主通道：llm/stream 瀑布旁路捕获（0.2.3，借鉴 dsh-cost-meter） -- */
+
+  /** 深度标记：存在即「本插件已知会、不需要再捕获」的 llm 流。 */
+  const llmDepth = new AsyncLocalStorage()
+
+  /** 实时捕获的最近一轮：sessionId → { userText, assistantText, at }。 */
+  const turnCache = new Map()
+  const TURN_CACHE_MAX = 24
+  const TURN_CACHE_TTL_MS = 10 * 60_000
+
+  function cachedTurnOf(sessionId) {
+    const hit = turnCache.get(sessionId)
+    if (!hit) return null
+    if (Date.now() - hit.at > TURN_CACHE_TTL_MS) { turnCache.delete(sessionId); return null }
+    return hit
+  }
+
+  function rememberTurn(sessionId, userText, assistantText) {
+    if (!sessionId || !userText || !assistantText || assistantText.trim().length === 0) return
+    const prev = turnCache.get(sessionId)
+    // 同一轮的多步工具链 / 重试续流 userText 相同：助手文本追加累积，
+    // 让「最终答案」落在缓存尾部（生成时 clampTail 取尾部正好命中）。
+    const merged = prev && prev.userText === userText
+      ? `${prev.assistantText}\n\n${assistantText}`
+      : assistantText
+    turnCache.set(sessionId, { userText, assistantText: merged.slice(-20000), at: Date.now() })
+    if (turnCache.size > TURN_CACHE_MAX) {
+      let oldestKey = null
+      let oldestAt = Infinity
+      for (const [key, value] of turnCache) {
+        if (value.at < oldestAt) { oldestAt = value.at; oldestKey = key }
+      }
+      if (oldestKey !== null) turnCache.delete(oldestKey)
+    }
+  }
+
+  // llm/stream 捕获是否活着是 0.2.3 的关键真机问题（新架构进程分裂下
+  // 事件归属未实证），首帧与每次入缓存都留痕，一次对话即可从日志判定。
+  let llmStreamArmed = false
+
+  ctx.on('llm/stream', (options, next) => {
+    // 自己发起的建议生成调用 / 下游包装路由的嵌套调用：原样透传。
+    if (llmDepth.getStore() !== undefined) return next()
+    const downstream = next()
+    if (!llmStreamArmed) {
+      llmStreamArmed = true
+      void report('llm/stream first fire: capture channel is ALIVE in this process')
+    }
+    const sessionId = typeof options?.sessionId === 'string' ? options.sessionId : ''
+    const userText = (singleTextOfLastUser(options?.messages) ?? '').trim()
+    let assistantText = ''
+    let downstreamIter = null
+    let completed = false
+    return (async function* followupObserve() {
+      try {
+        downstreamIter = downstream[Symbol.asyncIterator]()
+        for (;;) {
+          // 深度标记内拉取：包装路由适配器在消费上下文里再发起的
+          // ctx.llm.stream() 继承标记，内层监听器判定为已处理、透传。
+          const result = await llmDepth.run(1, () => downstreamIter.next())
+          if (result.done) break
+          const chunk = result.value
+          if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
+            assistantText += chunk.text
+            if (assistantText.length > 20000) assistantText = assistantText.slice(-10000)
+          }
+          yield chunk
+        }
+        completed = true
+      } finally {
+        // 消费方提前中断（用户改下一句、错误终止）也要收尾；流失败时
+        // assistantText 不完整，通常过不了 minAssistantChars，无害。
+        if (!completed) {
+          try { await downstreamIter?.return?.() } catch { /* ignore */ }
+        }
+        try {
+          rememberTurn(sessionId, userText, assistantText)
+          void report(`llm/stream captured session=${sessionId ? sessionId.slice(0, 50) : '(none)'} userLen=${userText.length} assistantLen=${assistantText.length} ${!completed ? '(interrupted)' : ''}`)
+        } catch { /* 缓存失败绝不影响主对话流 */ }
+      }
+    })()
+  }, { global: true })
+
   /* -- 生成 --------------------------------------------------------- */
 
   async function runGeneration(llm, route, userText, assistantText, signal) {
     const count = Math.min(3, Math.max(2, Math.round(config.maxSuggestions)))
-    const iterator = llm.stream({
+    // 深度标记内发起：本次生成调用经过 llm/stream 瀑布时，监听器读到
+    // 标记即透传——建议生成的 prompt 不会被误缓存为对话轮。
+    // reasoningEffort low + maxTokens 2000：真机 04:50 实测 profile 默认
+    // high 推理把 600 上限全部烧光（raw len=0 → 无建议渲染）。
+    const iterator = llmDepth.run(1, () => llm.stream({
       provider: route.provider,
       model: route.model,
+      reasoningEffort: 'low',
       messages: [{ role: 'user', content: [{ type: 'text', text: buildPrompt(userText, assistantText, count, config) }] }],
-      maxTokens: 600,
+      maxTokens: 2000,
       signal,
-    })[Symbol.asyncIterator]()
+    })[Symbol.asyncIterator]())
     let text = ''
     try {
       for (;;) {
@@ -433,9 +547,9 @@ export function apply(ctx, config) {
         }
 
         /**
-         * 日志驱动生成（0.2.0 主通道）：客户端回合落定后带 sessionId 调用，
-         * 服务端直读会话日志取最后一轮，再走 llm.stream 生成。
-         * 新架构下 agent/* 事件到不了插件进程，这是唯一可靠通道。
+         * 生成建议（0.2.3 双通道）：优先用 llm/stream 实时捕获的对话轮
+         * （零文件 IO、无解析时延），未命中才回落日志驱动（0.2.0 引入，
+         * 解压 session.v4.jsonl.zstd 直读）。
          */
         if ((path === '/generate' || path === '/refresh') && req.method === 'POST') {
           let body = ''
@@ -443,34 +557,38 @@ export function apply(ctx, config) {
           let sessionId = ''
           try { sessionId = JSON.parse(body).sessionId ?? '' } catch { sessionId = '' }
           if (!sessionId) { send(400, { error: 'missing sessionId' }); return }
-          const turn = await lastTurnFromLog(sessionId)
+          const cached = cachedTurnOf(sessionId)
+          const turn = cached
+            ? { userText: cached.userText, assistantText: cached.assistantText }
+            : await lastTurnFromLog(sessionId)
           if (!turn) {
-            void report(`generate(log) ${path}: no usable turn in session ${String(sessionId).slice(0, 50)}`)
+            void report(`generate(${cached ? 'cache' : 'log'}) ${path}: no usable turn in session ${String(sessionId).slice(0, 50)}`)
             send(409, { error: 'no-turn' })
             return
           }
           const route = configRoute() ?? defaultRoute() ?? await patchDefaultRoute()
           if (!route) {
-            void report('generate(log): no route (config/agentDefaultModel/patch all missing)')
+            void report(`generate(${cached ? 'cache' : 'log'}): no route (config/agentDefaultModel/patch all missing)`)
             send(503, { error: 'no-route' })
             return
           }
+          const source = cached ? 'cache' : 'log'
           const controller = new AbortController()
           const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
           try {
-            void report(`generate(log) start route=${route.provider}/${route.model} userLen=${turn.userText.length} assistantLen=${turn.assistantText.length}`)
+            void report(`generate(${source}) start route=${route.provider}/${route.model} userLen=${turn.userText.length} assistantLen=${turn.assistantText.length}`)
             const suggestions = await runGeneration(webCtx.llm, route, turn.userText, turn.assistantText, controller.signal)
             if (!suggestions.length) {
-              void report('generate(log) empty')
+              void report(`generate(${source}) empty`)
               send(502, { error: 'generate-failed' })
               return
             }
             lastContext = { route, ...turn }
             latest = { seq: ++seqCounter, suggestions }
-            void report(`generate(log) ok seq=${latest.seq} ${JSON.stringify(suggestions)}`)
+            void report(`generate(${source}) ok seq=${latest.seq} ${JSON.stringify(suggestions)}`)
             send(200, latest)
           } catch (err) {
-            void report(`generate(log) failed: ${String(err?.message ?? err).slice(0, 200)}`)
+            void report(`generate(${source}) failed: ${String(err?.message ?? err).slice(0, 200)}`)
             send(502, { error: 'generate-failed' })
           } finally {
             clearTimeout(timer)

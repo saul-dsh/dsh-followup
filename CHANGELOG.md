@@ -2,6 +2,29 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.3] - 2026-10-25
+
+### 新增：llm/stream 实时捕获主通道（借鉴 dsh-cost-meter）
+
+调研 [Han-1413141/dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter)
+（v1.9.39）后移植其核心数据模式：`ctx.on('llm/stream', listener, { global: true })`
+是 llm 服务的官方瀑布事件，每次 `ctx.llm.stream()` 都会经过，监听器能同时拿到
+请求（`options.messages`、`options.sessionId`）与回复流（逐 chunk 透传观察）。
+
+- 服务端新增 llm/stream 链尾旁路捕获：逐 chunk 透传不改流协议，累积
+  `text-delta` 得到助手回复，按 `sessionId` 存入内存轮次缓存（24 会话 /
+  10 分钟 TTL；同一轮的多步工具链与续流按相同 userText 追加累积）。
+- AsyncLocalStorage 深度标记排除两类重复捕获：包装路由插件嵌套发起的
+  上游调用（pull 下游时打标记，cost-meter 同款），以及本插件自己发起的
+  建议生成调用（发起时打标记）。
+- `POST /generate` 改双通道：优先吃实时缓存（零文件 IO、无 zstd 解析
+  时延），未命中回落 0.2.0 的日志驱动；debug 日志以 `generate(cache)` /
+  `generate(log)` 区分来源。
+- 捕获通路首帧与每次入缓存均上报 `~/.dsh/followup-debug.log`
+  （`llm/stream first fire: capture channel is ALIVE`）——新架构进程分裂
+  下该事件是否到达插件进程从未实证，一次真实对话即可判定。
+- 旧 agent/* 事件监听保留（旧版本 dsh 回落），注释标明定位。
+
 ## [0.2.2] - 2026-10-25
 
 对齐三处与 Trae 源码的偏差：截断 2 行 → 3 行（Trae 输入区变体
