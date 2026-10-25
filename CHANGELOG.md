@@ -2,6 +2,12 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.2] - 2026-10-25
+
+对齐三处与 Trae 源码的偏差：截断 2 行 → 3 行（Trae 输入区变体
+`-webkit-line-clamp:3`）；箭头从文字 "→" 改为 codicon 同款 16-viewBox
+描边 SVG；与输入框间距 10px → 4px（Trae `margin:3px 0 0 4px`）。
+
 ## [0.2.1] - 2026-10-25
 
 ### UI：建议行改为 Trae 源码同款

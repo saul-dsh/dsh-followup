@@ -69,9 +69,13 @@ window.__ModuleLoader__.load({
 @media (prefers-reduced-motion: reduce) { .dsh-followup-item, .dsh-followup-more { animation: none; } }
 .dsh-followup-item .dsh-followup-arrow {
   flex: none;
-  font-size: 12px;
-  line-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4px;
   color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.55));
+}
+.dsh-followup-item .dsh-followup-arrow svg {
+  display: block;
 }
 .dsh-followup-item:hover .dsh-followup-arrow {
   color: var(--dsw-alias-label-primary, #DADDE5);
@@ -80,7 +84,7 @@ window.__ModuleLoader__.load({
   min-width: 0;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 .dsh-followup-more {
@@ -259,7 +263,7 @@ window.__ModuleLoader__.load({
         if (rect.width === 0 && rect.height === 0) return
         box.style.left = `${rect.left}px`
         box.style.width = `${rect.width}px`
-        box.style.bottom = `${Math.max(12, window.innerHeight - rect.top + 10)}px`
+        box.style.bottom = `${Math.max(12, window.innerHeight - rect.top + 4)}px`
       }
 
       React.useEffect(() => {
@@ -285,7 +289,10 @@ window.__ModuleLoader__.load({
           title: text,
           onClick: () => sendSuggestion(text),
         },
-        h('span', { className: 'dsh-followup-arrow' }, '→'),
+        // codicon 同款右箭头（16 viewBox 描边箭头，替代图标字体）
+        h('span', { className: 'dsh-followup-arrow' },
+          h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
+            h('path', { d: 'M2.5 8h10M9 4.5L12.5 8 9 11.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
         h('span', { className: 'dsh-followup-text' }, text))),
         h('button', {
           type: 'button',
@@ -300,7 +307,7 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.2.1 active')
+        console.info('[dsh-followup] client 0.2.2 active')
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'dsh-followup',
