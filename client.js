@@ -32,20 +32,15 @@ window.__ModuleLoader__.load({
        纵向堆叠的文本链接行——右箭头 + 12px 链接色文字，padding 4/8，
        无边框无胶囊，hover 淡底，容器 gap 6px 左对齐贴输入框上方。 */
     const CSS = `
+.dsh-followup-anchor { display: none; }
 .dsh-followup-box {
-  /* 挂在 conversation.input.overlay 锚点（输入卡顶边、占满卡宽）的上沿。
-     贴死卡顶不留缝：Trae 的 margin 是 3px 0 0 4px，我们这里是卡外定位，
-     再留 4px 就显出一条缝，像浮层。 */
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  margin-bottom: 0;
+  /* 挂在 conversation.chat.turnTail：回合末尾、AI 正文下方、操作图标上方。
+     流式元素，跟对话一起滚动，天然占位——不再靠 padding 补，也不会顶到输入框。 */
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  pointer-events: none;
+  margin: 10px 0 2px;
 }
 @keyframes dsh-followup-in {
   from { opacity: 0; }
@@ -217,26 +212,22 @@ window.__ModuleLoader__.load({
       const [items, setItems] = React.useState(null)
       const shownSeq = React.useRef(0)
       const boxRef = React.useRef(null)
+      // turnTail 每个回合都会渲染一次，只有最后一个回合该显示建议。
+      const [isLatestTurn, setIsLatestTurn] = React.useState(false)
 
-      // 补位：这条建议是 absolute 浮层，不占布局，会盖住最后几条消息。
-      // Trae 那边是流式元素天然占位，dsh 没有「输入框上方且占布局」的槽位，
-      // 只能给滚动容器补等高的 padding-bottom，让内容主动让出这块空间。
       React.useEffect(() => {
-        if (items === null) return
         const box = boxRef.current
-        const scroller = document.querySelector('[data-conversation-scroll]')
-        if (!box || !scroller) return
-        const apply = () => {
-          scroller.style.paddingBottom = `${box.offsetHeight + 8}px`
+        if (!box) return
+        const check = () => {
+          const tails = document.querySelectorAll('[data-turn-tail]')
+          const last = tails[tails.length - 1]
+          setIsLatestTurn(Boolean(last && last.contains(box)))
         }
-        apply()
-        const observer = new ResizeObserver(apply)
-        observer.observe(box)
-        return () => {
-          observer.disconnect()
-          scroller.style.paddingBottom = ''
-        }
-      }, [items])
+        check()
+        const observer = new MutationObserver(check)
+        observer.observe(document.body, { childList: true, subtree: true })
+        return () => observer.disconnect()
+      }, [])
 
       // 会话切换时收起，避免把上一个会话的建议带过去。
       React.useEffect(() => { setItems(null); shownSeq.current = 0 }, [sessionId])
@@ -252,7 +243,12 @@ window.__ModuleLoader__.load({
         shownSeq.current = data.seq
         setItems(data.suggestions)
       }, [sessionId])
-      React.useEffect(() => { void fetchLatest() }, [sessionId])
+      // turnTail 每个回合一个实例，只在最后一个回合拉数据，否则 N 个回合
+      // 会同时打 N 次 /latest。
+      React.useEffect(() => {
+        if (!isLatestTurn) return
+        void fetchLatest()
+      }, [sessionId, isLatestTurn, fetchLatest])
 
       const load = React.useCallback(async () => {
         if (!sessionId || !inputActionsBridge) return
@@ -276,7 +272,12 @@ window.__ModuleLoader__.load({
 
       const loadRef = React.useRef(load)
       loadRef.current = load
+      // useTurnEnd 可能只注册一次，用 ref 读最新的「是不是最后一个回合」，
+      // 否则闭包里永远是初始的 false。
+      const latestRef = React.useRef(isLatestTurn)
+      latestRef.current = isLatestTurn
       useTurnEnd(() => {
+        if (!latestRef.current) return
         window.setTimeout(() => { void loadRef.current() }, FETCH_DELAY_MS)
       })
 
@@ -309,31 +310,32 @@ window.__ModuleLoader__.load({
         }, 250)
       }
 
-      if (items === null) return null
-      // 位置完全交给 dsh 的 conversation.input.overlay 槽位（锚在输入卡
-      // 顶边、占满卡宽——Trae 的输入区顶部专属带同位），容器只负责
-      // 「贴锚上沿 4px、纵向堆叠、左对齐」。
-      // Trae 同款：纵向文本链接行，整行点击直接发送；「换一批」同款淡色行收尾。
-      return h('div', { className: 'dsh-followup-box', ref: boxRef },
-        items.map((text, index) => h('button', {
-          type: 'button',
-          key: index,
-          className: 'dsh-followup-item',
-          title: text,
-          onClick: () => sendSuggestion(text),
-        },
-        // codicon 同款右箭头（16 viewBox 描边箭头，替代图标字体）
-        h('span', { className: 'dsh-followup-arrow' },
-          h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
-            h('path', { d: 'M2.5 8h10M9 4.5L12.5 8 9 11.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
-        h('span', { className: 'dsh-followup-text' }, text))),
-        h('button', {
-          type: 'button',
-          className: 'dsh-followup-more',
-          title: '换一批跟进建议',
-          'aria-label': '换一批跟进建议',
-          onClick: () => { void refresh() },
-        }, '↻ 换一批'))
+      // 锚点必须常驻：turnTail 每个回合都渲染一次，靠它判断自己是第几个，
+      // 只在最后一个回合挂出建议。锚点本身 display:none，不占位。
+      return h(React.Fragment, null,
+        h('span', { ref: boxRef, className: 'dsh-followup-anchor', 'aria-hidden': true }),
+        items !== null && isLatestTurn
+          ? h('div', { className: 'dsh-followup-box' },
+            items.map((text, index) => h('button', {
+              type: 'button',
+              key: index,
+              className: 'dsh-followup-item',
+              title: text,
+              onClick: () => sendSuggestion(text),
+            },
+            // codicon 同款右箭头（16 viewBox 描边箭头，替代图标字体）
+            h('span', { className: 'dsh-followup-arrow' },
+              h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
+                h('path', { d: 'M2.5 8h10M9 4.5L12.5 8 9 11.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
+            h('span', { className: 'dsh-followup-text' }, text))),
+            h('button', {
+              type: 'button',
+              className: 'dsh-followup-more',
+              title: '换一批跟进建议',
+              'aria-label': '换一批跟进建议',
+              onClick: () => { void refresh() },
+            }, '↻ 换一批'))
+          : null)
     }
 
     return {
@@ -341,11 +343,12 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ensureStyle()
         console.info('[dsh-followup] client 0.3.0 active')
-        // 视觉：overlay 槽位（输入卡顶边专属带，Trae 同位）。
-        ctx.slots.inject('conversation.input.overlay', () => ctx.slots.register({
-          name: 'conversation.input.overlay',
+        // 视觉：turnTail 槽位（回合末尾、AI 正文下方、操作图标上方），
+        // 流式占位，跟对话一起滚动。Trae 同款位置。
+        ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
+          name: 'conversation.chat.turnTail',
           id: 'dsh-followup',
-          order: 0,
+          order: 10,
         }, FollowupChips))
         // 隐形桥：dock 槽拿 inputActions（overlay 槽的 props 不带）。
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
