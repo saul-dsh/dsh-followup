@@ -33,14 +33,14 @@ window.__ModuleLoader__.load({
        无边框无胶囊，hover 淡底，容器 gap 6px 左对齐贴输入框上方。 */
     const CSS = `
 .dsh-followup-box {
-  /* 挂在 conversation.input.overlay 锚点（输入卡顶边、占满卡宽）的上
-     沿：贴锚 bottom:100% 再留 4px 间距——Trae 输入区顶部专属带同位。
-     位置随锚点走，无需手动算矩形。 */
+  /* 挂在 conversation.input.overlay 锚点（输入卡顶边、占满卡宽）的上沿。
+     贴死卡顶不留缝：Trae 的 margin 是 3px 0 0 4px，我们这里是卡外定位，
+     再留 4px 就显出一条缝，像浮层。 */
   position: absolute;
   bottom: 100%;
   left: 0;
   right: 0;
-  margin-bottom: 4px;
+  margin-bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -216,6 +216,27 @@ window.__ModuleLoader__.load({
     function FollowupChips({ sessionId }) {
       const [items, setItems] = React.useState(null)
       const shownSeq = React.useRef(0)
+      const boxRef = React.useRef(null)
+
+      // 补位：这条建议是 absolute 浮层，不占布局，会盖住最后几条消息。
+      // Trae 那边是流式元素天然占位，dsh 没有「输入框上方且占布局」的槽位，
+      // 只能给滚动容器补等高的 padding-bottom，让内容主动让出这块空间。
+      React.useEffect(() => {
+        if (items === null) return
+        const box = boxRef.current
+        const scroller = document.querySelector('[data-conversation-scroll]')
+        if (!box || !scroller) return
+        const apply = () => {
+          scroller.style.paddingBottom = `${box.offsetHeight + 8}px`
+        }
+        apply()
+        const observer = new ResizeObserver(apply)
+        observer.observe(box)
+        return () => {
+          observer.disconnect()
+          scroller.style.paddingBottom = ''
+        }
+      }, [items])
 
       // 会话切换时收起，避免把上一个会话的建议带过去。
       React.useEffect(() => { setItems(null); shownSeq.current = 0 }, [sessionId])
@@ -293,7 +314,7 @@ window.__ModuleLoader__.load({
       // 顶边、占满卡宽——Trae 的输入区顶部专属带同位），容器只负责
       // 「贴锚上沿 4px、纵向堆叠、左对齐」。
       // Trae 同款：纵向文本链接行，整行点击直接发送；「换一批」同款淡色行收尾。
-      return h('div', { className: 'dsh-followup-box' },
+      return h('div', { className: 'dsh-followup-box', ref: boxRef },
         items.map((text, index) => h('button', {
           type: 'button',
           key: index,
