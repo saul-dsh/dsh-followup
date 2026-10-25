@@ -42,7 +42,8 @@
 
 import Schema from '@deepseek-ai/schemastery'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -51,6 +52,9 @@ export const name = 'followup'
 const DIAG_LOG = join(homedir(), '.dsh', 'followup-debug.log')
 const SESSIONS_ROOT = join(homedir(), '.dsh', 'sessions')
 const PROFILES_ROOT = join(homedir(), '.dsh', 'profiles')
+const SUGGEST_FILE = join(homedir(), '.dsh', 'followup-suggestions.json')
+/** 建议展示的新鲜窗口：超出后打开会话不再显示（防陈年旧建议）。 */
+const SUGGEST_FRESH_MS = 10 * 60_000
 
 /** 每环节一行落盘：事件是否到、文本抓没抓到、生成成没成，一次复现即可定位断点。 */
 const report = async (line) => {
@@ -250,11 +254,39 @@ export function apply(ctx, config) {
   }
 
   /** 供 web 端拉取的最近一份建议；seq 递增，客户端凭它去重。 */
-  let latest = { seq: 0, suggestions: [] }
+  let latest = { seq: 0, suggestions: [], at: 0 }
   /** 最近一次生成的上下文，供「换一批」重生成。 */
   let lastContext = null
   let seqCounter = 0
   let pendingTimer = 0
+
+  /* -- 建议持久化（0.2.4）：重启后打开会话还能拿到最近一轮的建议 ----- */
+  /** sessionId → { seq, suggestions, at }，boot 时读回，成功生成时写入。 */
+  let persisted = {}
+  try {
+    persisted = JSON.parse(readFileSync(SUGGEST_FILE, 'utf8'))
+    if (!persisted || typeof persisted !== 'object') persisted = {}
+    for (const entry of Object.values(persisted)) {
+      if (Number.isInteger(entry?.seq) && entry.seq > seqCounter) seqCounter = entry.seq
+    }
+    say('info', `restored ${Object.keys(persisted).length} persisted suggestion set(s)`)
+  } catch { /* 首次或损坏：空表开始 */ }
+
+  function persistSuggestions(sessionId, seq, suggestions) {
+    if (!sessionId || !Array.isArray(suggestions) || suggestions.length === 0) return
+    persisted[sessionId] = { seq, suggestions, at: Date.now() }
+    const keys = Object.keys(persisted)
+    if (keys.length > 24) {
+      let oldest = null
+      let oldestAt = Infinity
+      for (const key of keys) {
+        if (persisted[key].at < oldestAt) { oldestAt = persisted[key].at; oldest = key }
+      }
+      if (oldest !== null) delete persisted[oldest]
+    }
+    void writeFile(SUGGEST_FILE, `${JSON.stringify(persisted)}\n`, 'utf8')
+      .catch(() => { /* 持久化失败不影响主流程 */ })
+  }
 
   const say = (level, message) => {
     try {
@@ -498,12 +530,23 @@ export function apply(ctx, config) {
     const controller = new AbortController()
     buf.controller = controller
     const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
+    // 根作用域没声明 llm inject 时属性访问直接抛（真机 07:41 实证）；
+    // 捕住降级——cache/日志路径不受影响。
+    let eventLlm = null
+    try { eventLlm = ctx.llm } catch { eventLlm = null }
+    if (eventLlm === null) {
+      void report('event-path skip: llm not injectable in this scope (cache path covers it)')
+      return
+    }
     try {
       void report(`generate start route=${route.provider}/${route.model} userLen=${userText.length} assistantLen=${assistantText.length}`)
-      const suggestions = await runGeneration(ctx.llm, route, userText, assistantText, controller.signal)
+      const suggestions = await runGeneration(eventLlm, route, userText, assistantText, controller.signal)
       if (suggestions.length) {
         lastContext = { route, userText, assistantText }
-        latest = { seq: ++seqCounter, suggestions }
+        latest = { seq: ++seqCounter, suggestions, at: Date.now() }
+        let eventSessionId = ''
+        try { eventSessionId = agent?.session?.id ?? '' } catch { eventSessionId = '' }
+        persistSuggestions(eventSessionId, latest.seq, suggestions)
         say('info', `turn ${latest.seq}: ${suggestions.length} suggestions`)
         void report(`generate ok seq=${latest.seq} count=${suggestions.length} ${JSON.stringify(suggestions)}`)
       } else {
@@ -541,7 +584,17 @@ export function apply(ctx, config) {
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-followup/, '')
 
         // 客户端在每次「生成中 → 空闲」后拉取；seq 相同就静默忽略。
+        // 0.2.4：带 ?sessionId= 时优先返回该会话持久化的建议（重启后打开
+        // 会话仍能拿到最近一轮），过期（>10min）回落全局 latest。
         if (path === '/latest' && req.method === 'GET') {
+          const qs = new URL(req.url ?? '', 'http://local').searchParams
+          const wantSession = qs.get('sessionId') ?? ''
+          const entry = wantSession ? persisted[wantSession] : undefined
+          if (entry && Array.isArray(entry.suggestions) && entry.suggestions.length > 0
+            && Date.now() - entry.at <= SUGGEST_FRESH_MS) {
+            send(200, entry)
+            return
+          }
           send(200, latest)
           return
         }
@@ -584,7 +637,8 @@ export function apply(ctx, config) {
               return
             }
             lastContext = { route, ...turn }
-            latest = { seq: ++seqCounter, suggestions }
+            latest = { seq: ++seqCounter, suggestions, at: Date.now() }
+            persistSuggestions(String(sessionId), latest.seq, suggestions)
             void report(`generate(${source}) ok seq=${latest.seq} ${JSON.stringify(suggestions)}`)
             send(200, latest)
           } catch (err) {

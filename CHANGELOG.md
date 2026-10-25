@@ -2,6 +2,21 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.4] - 2026-10-25
+
+修复「重启后打开对话建议消失」（真机日志实证：07:41 生成成功 seq=1，
+07:43 重启后内存态清零）：
+
+- **建议持久化**：生成成功时按 sessionId 写入
+  `~/.dsh/followup-suggestions.json`（最多 24 会话，boot 时读回并恢复
+  seq 计数）；`GET /latest?sessionId=` 优先返回该会话 10 分钟内新鲜的
+  持久化建议，过期回落全局。
+- **客户端打开会话即拉取**：dock 组件挂载/切换会话时 fetch /latest，
+  新鲜（10 分钟内）即显示——重启后打开对话建议仍在。
+- 事件通道 llm 访问加 try/catch 降级（真机 07:41 实证根作用域
+  `cannot get property "llm" without inject`；cache/日志路径不受影响，
+  不再刷 error 日志）。
+
 ## [0.2.3] - 2026-10-25
 
 ### 新增：llm/stream 实时捕获主通道（借鉴 dsh-cost-meter）

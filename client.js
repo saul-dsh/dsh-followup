@@ -203,6 +203,19 @@ window.__ModuleLoader__.load({
       // 会话切换（inputActions 换实例）时收起，避免把上一个会话的建议带过去。
       React.useEffect(() => { setItems(null) }, [inputActions])
 
+      // 0.2.4：会话打开/切换时拉一次持久化建议——重启后打开对话仍然显示
+      // 最近一轮的建议（10 分钟内新鲜才显示，服务端同窗校验）。
+      const fetchLatest = React.useCallback(async () => {
+        if (!inputActions || !sessionId) return
+        const data = await fetchJson(`/latest?sessionId=${encodeURIComponent(sessionId)}`)
+        if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
+        if (!data.at || Date.now() - data.at > 10 * 60_000) return
+        if (data.seq === shownSeq.current) return
+        shownSeq.current = data.seq
+        setItems(data.suggestions)
+      }, [inputActions, sessionId])
+      React.useEffect(() => { void fetchLatest() }, [inputActions])
+
       // 用户一改草稿就收起：填入草稿本身也会触发这条，无需单独清理。
       React.useEffect(() => {
         if (typeof draft === 'string' && draft.length > 0) setItems(null)
@@ -307,7 +320,7 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.2.2 active')
+        console.info('[dsh-followup] client 0.2.4 active')
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'dsh-followup',
