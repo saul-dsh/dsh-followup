@@ -46,25 +46,29 @@ window.__ModuleLoader__.load({
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: none; }
 }
-/* 卡片式：整条一个圆角块，右侧「发送」按钮有独立底色，再右侧「添加到对话」。 */
+/* 照搬 Trae：@byted-icube/ai-modules-chat 的 .welcome-followup-action ——
+   底色 rgba(194,202,242,.1) 带蓝调（不是纯白），悬停 .15，圆角 6px，
+   字号 13px，文字色走 colorDefaultText。 */
 .dsh-followup-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   max-width: 100%;
-  padding: 5px 6px 5px 12px;
+  height: 34px;
+  padding: 0 8px 0 12px;
   border: none;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.055);
+  border-radius: 6px;
+  background: rgba(194, 202, 242, 0.10);
   color: var(--dsw-alias-label-primary, #DADDE5);
   font-size: 13px;
   line-height: 20px;
+  letter-spacing: .039px;
   text-align: left;
   cursor: pointer;
   animation: dsh-followup-in 200ms ease-out both;
   transition: background 120ms ease;
 }
-.dsh-followup-item:hover { background: rgba(255, 255, 255, 0.09); }
+.dsh-followup-item:hover { background: rgba(194, 202, 242, 0.15); }
 @media (prefers-reduced-motion: reduce) { .dsh-followup-item { animation: none; } }
 .dsh-followup-text {
   min-width: 0;
@@ -72,6 +76,7 @@ window.__ModuleLoader__.load({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 右侧「发送」方块：比卡片底再亮一档，同色系 */
 .dsh-followup-send {
   flex: none;
   display: inline-flex;
@@ -79,13 +84,13 @@ window.__ModuleLoader__.load({
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(194, 202, 242, 0.12);
   color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72));
   transition: background 120ms ease, color 120ms ease;
 }
 .dsh-followup-item:hover .dsh-followup-send {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(194, 202, 242, 0.20);
   color: var(--dsw-alias-label-primary, #DADDE5);
 }
 .dsh-followup-add {
@@ -95,12 +100,12 @@ window.__ModuleLoader__.load({
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: 5px;
   color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.5));
   transition: background 120ms ease, color 120ms ease;
 }
 .dsh-followup-add:hover {
-  background: rgba(255, 255, 255, 0.10);
+  background: rgba(194, 202, 242, 0.12);
   color: var(--dsw-alias-label-primary, #DADDE5);
 }
 `
