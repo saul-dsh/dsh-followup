@@ -2,6 +2,22 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.1] - 2026-10-25
+
+### UI：建议行改为 Trae 源码同款
+
+逆向 `D:\Trae CN\resources\app\out\vs\workbench\workbench.desktop.main.css`
+的 `.interactive-session-followups` 规则与 `theme-icube/themes/dark_blue.json`
+色板：
+
+- 纵向堆叠文本链接行（flex-direction:column、gap 6px、左对齐）取代
+  横排胶囊 chip；每行 = 右箭头 + 12px 链接色文字（Trae 暗色
+  `#DADDE5`，映射到 `--dsw-alias-label-primary`），padding 4/8px、
+  4px 小圆角、无边框无底色，hover 淡底（Trae `rgba(237,241,248,.1)`
+  映射 `--dsw-alias-interactive-bg-hover`），长文本两行截断。
+- 整行点击直接发送（Trae reply 行为）；去掉 💬 填入按钮和 ✕ 关闭
+  按钮（改草稿即隐藏）。「换一批」改为同款淡色行收尾。
+
 ## [0.2.0] - 2026-10-24
 
 ### 重构：日志驱动生成（修复新架构下建议从不出现）

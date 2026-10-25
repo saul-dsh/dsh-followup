@@ -3,10 +3,11 @@
  *
  * 只做两件事：
  *  1. 感知「生成中 → 空闲」：观察输入区按钮的 aria-label（生成时发送键
- *     会变成停止键），从忙翻到闲即视为一轮回复落定，拉取服务端建议。
- *  2. 把建议渲染成 Trae 式 chip，浮在输入框卡片上方，双区交互：
- *     点正文/箭头 = 直接发送（setDraft 后延迟 submit，先在输入框里
- *     闪现整句）；点气泡图标 = 只填进草稿编辑。用户一改草稿 chip 即隐藏。
+ *     会变成停止键），从忙翻到闲即视为一轮回复落定，POST /generate 拿建议。
+ *  2. 把建议渲染成 Trae 同款的纵向文本链接行（逆向自 Trae workbench
+ *     desktop.main.css 的 .interactive-session-followups：右箭头 + 12px
+ *     链接色、padding 4/8、无边框、hover 淡底、gap 6px 纵向堆叠），
+ *     整行点击直接发送；尾部一条淡色「换一批」。用户一改草稿即隐藏。
  *
  * 定位与空闲判定复用已验证的稳定标识：
  *  - 输入区根 = `[data-composer-dock]` 的父节点（dock 只是底部那条，
@@ -26,101 +27,81 @@ window.__ModuleLoader__.load({
     /** 落定后稍等一拍再拉取：让服务端的缓冲窗口先走完，避免拉到旧 seq。 */
     const FETCH_DELAY_MS = 400
 
+    /* Trae 同款跟进建议（逆向自 D:\Trae CN workbench.desktop.main.css 的
+       .interactive-session-followups 规则 + dark_blue.json 主题 token）：
+       纵向堆叠的文本链接行——右箭头 + 12px 链接色文字，padding 4/8，
+       无边框无胶囊，hover 淡底，容器 gap 6px 左对齐贴输入框上方。 */
     const CSS = `
 .dsh-followup-box {
   position: fixed;
   z-index: 40;
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   pointer-events: none;
 }
-.dsh-followup-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  pointer-events: auto;
-  animation: dsh-followup-in 200ms ease-out both;
-}
 @keyframes dsh-followup-in {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .dsh-followup-row { animation: none; } }
-.dsh-followup-chip {
+.dsh-followup-item {
   display: inline-flex;
-  align-items: stretch;
+  align-items: flex-start;
+  gap: 6px;
   max-width: 100%;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.06));
-  overflow: hidden;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.dsh-followup-chip:hover {
-  background: var(--dsw-alias-interactive-bg-active, rgba(255, 255, 255, 0.12));
-  border-color: rgba(255, 255, 255, 0.18);
-}
-.dsh-followup-send {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 7px 8px 7px 12px;
+  padding: 4px 8px;
   border: none;
+  border-radius: 4px;
   background: transparent;
-  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.88));
-  font-size: 13px;
-  line-height: 1.45;
+  color: var(--dsw-alias-label-primary, #DADDE5);
+  font-size: 12px;
+  line-height: 20px;
   text-align: left;
   cursor: pointer;
+  pointer-events: auto;
+  animation: dsh-followup-in 200ms ease-out both;
+  transition: background 120ms ease;
 }
-.dsh-followup-send:active { transform: scale(0.985); }
-.dsh-followup-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 420px;
+.dsh-followup-item:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(237, 241, 248, 0.1));
 }
-.dsh-followup-arrow {
+@media (prefers-reduced-motion: reduce) { .dsh-followup-item, .dsh-followup-more { animation: none; } }
+.dsh-followup-item .dsh-followup-arrow {
   flex: none;
   font-size: 12px;
-  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.60));
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.55));
 }
-.dsh-followup-add {
-  flex: none;
+.dsh-followup-item:hover .dsh-followup-arrow {
+  color: var(--dsw-alias-label-primary, #DADDE5);
+}
+.dsh-followup-text {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.dsh-followup-more {
   display: inline-flex;
   align-items: center;
-  padding: 7px 9px;
+  gap: 6px;
+  padding: 4px 8px;
   border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 4px;
   background: transparent;
-  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.60));
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-.dsh-followup-add:hover {
-  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.88));
-  background: rgba(255, 255, 255, 0.06);
-}
-.dsh-followup-tool {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.55));
+  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.55));
   font-size: 12px;
+  line-height: 20px;
   cursor: pointer;
+  pointer-events: auto;
+  animation: dsh-followup-in 200ms ease-out both;
   transition: background 120ms ease, color 120ms ease;
 }
-.dsh-followup-tool:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
-  color: var(--dsw-alias-label-primary, rgba(232, 238, 250, 0.85));
+.dsh-followup-more:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(237, 241, 248, 0.1));
+  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72));
 }
 `
 
@@ -295,48 +276,31 @@ window.__ModuleLoader__.load({
       }, [items])
 
       if (!inputActions || !items) return null
+      // Trae 同款：纵向文本链接行，整行点击直接发送；「换一批」同款淡色行收尾。
       return h('div', { ref: boxRef, className: 'dsh-followup-box' },
-        h('div', { className: 'dsh-followup-row' },
-          items.map((text, index) => h('span', { key: index, className: 'dsh-followup-chip' },
-            h('button', {
-              type: 'button',
-              className: 'dsh-followup-send',
-              title: '发送',
-              onClick: () => sendSuggestion(text),
-            },
-              h('span', { className: 'dsh-followup-text' }, text),
-              h('span', { className: 'dsh-followup-arrow' }, '→'),
-            ),
-            h('button', {
-              type: 'button',
-              className: 'dsh-followup-add',
-              title: '添加到对话',
-              'aria-label': '添加到对话',
-              onClick: () => inputActions.setDraft(text),
-            }, '💬'),
-          )),
-          h('button', {
-            type: 'button',
-            className: 'dsh-followup-tool',
-            title: '换一批',
-            'aria-label': '换一批跟进建议',
-            onClick: () => { void refresh() },
-          }, '↻'),
-          h('button', {
-            type: 'button',
-            className: 'dsh-followup-tool',
-            title: '关闭',
-            'aria-label': '关闭跟进建议',
-            onClick: () => setItems(null),
-          }, '✕'),
-        ))
+        items.map((text, index) => h('button', {
+          type: 'button',
+          key: index,
+          className: 'dsh-followup-item',
+          title: text,
+          onClick: () => sendSuggestion(text),
+        },
+        h('span', { className: 'dsh-followup-arrow' }, '→'),
+        h('span', { className: 'dsh-followup-text' }, text))),
+        h('button', {
+          type: 'button',
+          className: 'dsh-followup-more',
+          title: '换一批跟进建议',
+          'aria-label': '换一批跟进建议',
+          onClick: () => { void refresh() },
+        }, '↻ 换一批'))
     }
 
     return {
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.2.0 active')
+        console.info('[dsh-followup] client 0.2.1 active')
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'dsh-followup',
