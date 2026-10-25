@@ -74,37 +74,29 @@ window.__ModuleLoader__.load({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 箭头没有底色，就是一枚图标 */
 .dsh-followup-send {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #d4d4d4;
-  transition: background 120ms ease, color 120ms ease;
+  width: 18px;
+  height: 18px;
+  color: rgba(255, 255, 255, 0.55);
+  transition: color 120ms ease;
 }
-.dsh-followup-item:hover .dsh-followup-send {
-  background: rgba(255, 255, 255, 0.14);
-  color: #f0f0f0;
-}
+.dsh-followup-item:hover .dsh-followup-send { color: #e5e5e5; }
 .dsh-followup-add {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.45);
-  transition: background 120ms ease, color 120ms ease;
+  width: 20px;
+  height: 20px;
+  color: rgba(255, 255, 255, 0.62);
+  transition: color 120ms ease;
 }
-.dsh-followup-add:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e5e5e5;
-}
+.dsh-followup-add:hover { color: #f0f0f0; }
 `
 
     function ensureStyle() {
@@ -326,11 +318,14 @@ window.__ModuleLoader__.load({
               title: '添加到对话',
               onClick: (event) => { event.stopPropagation(); addToDraft(text) },
             },
-            h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
-              h('circle', { cx: 8, cy: 8, r: 5.6, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.3 }),
-              h('circle', { cx: 5.9, cy: 8, r: 0.85, fill: 'currentColor' }),
-              h('circle', { cx: 8, cy: 8, r: 0.85, fill: 'currentColor' }),
-              h('circle', { cx: 10.1, cy: 8, r: 0.85, fill: 'currentColor' }))))))
+            h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true },
+              h('path', {
+                d: 'M8 2.5c3.1 0 5.7 2.1 5.7 4.8S11.1 12.1 8 12.1c-.8 0-1.5-.1-2.2-.4L3.4 13l.7-2.2C2.8 9.9 2.3 8.7 2.3 7.3c0-2.7 2.6-4.8 5.7-4.8z',
+                fill: 'none', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linejoin': 'round',
+              }),
+              h('circle', { cx: 5.9, cy: 7.3, r: 0.75, fill: 'currentColor' }),
+              h('circle', { cx: 8, cy: 7.3, r: 0.75, fill: 'currentColor' }),
+              h('circle', { cx: 10.1, cy: 7.3, r: 0.75, fill: 'currentColor' }))))))
           : null)
     }
 
