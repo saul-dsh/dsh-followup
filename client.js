@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
   height: 36px;
   padding: 0 6px 0 12px;
   border: none;
-  border-radius: var(--dsw-radius-md, 12px);
+  border-radius: var(--dsw-radius-xl, 20px);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e5e5;
   font-size: 13px;
