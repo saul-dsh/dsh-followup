@@ -349,7 +349,7 @@ export function apply(ctx, config) {
       provider: route.provider,
       model: route.model,
       messages: [{ role: 'user', content: [{ type: 'text', text: buildPrompt(userText, assistantText, count, config) }] }],
-      maxTokens: 220,
+      maxTokens: 600,
       signal,
     })[Symbol.asyncIterator]()
     let text = ''
@@ -370,6 +370,7 @@ export function apply(ctx, config) {
       } catch { /* ignore */ }
       throw err
     }
+    void report(`raw output len=${text.length}: ${JSON.stringify(text.slice(0, 300))}`)
     return parseSuggestions(text, count)
   }
 
