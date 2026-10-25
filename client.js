@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
   height: 36px;
   padding: 0 8px 0 12px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm, 8px);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e5e5;
   font-size: 13px;
@@ -311,7 +311,7 @@ window.__ModuleLoader__.load({
             // 右侧「发送」：独立的浅色方块，和 Trae 一致
             h('span', { className: 'dsh-followup-send' },
               h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
-                h('path', { d: 'M2.5 8h10M9 4.5L12.5 8 9 11.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
+                h('path', { d: 'M4.5 11.5L11.5 4.5M6.8 4.5h4.7v4.7', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
             // 「添加到对话」：只填草稿，所以要挡住冒泡，避免顺带发送
             h('span', {
               className: 'dsh-followup-add',
