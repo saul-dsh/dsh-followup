@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-10-25
+
+### 挂载位置完全对齐 Trae
+
+逆向 Trae workbench 的输入区 DOM 描述树：`.interactive-input-part` 的
+**第一个子节点**是 `.interactive-input-followups`——输入区顶部一条**占
+布局的专属带**（不是浮层）。
+
+- 建议行从手写 fixed 浮层（自算矩形 + resize/ResizeObserver 跟随）改为
+  dsh 官方 `conversation.input.overlay` 槽位（锚在输入卡顶边、占满卡
+  宽）；容器 `bottom:100% + margin 4px` 贴锚上沿——与 Trae 带同位，
+  位置由布局系统托管，删除全部手动定位代码。
+- dock 槽降级为隐形 `InputActionsBridge`（overlay 槽 props 不带
+  inputActions，compaction-control 0.1.9 同款桥接模式）。
+- 行为对齐 Trae：打字时建议保持可见（去掉草稿联动隐藏）；点击建议
+  发出后立即收起本行。
+
 ## [0.2.5] - 2026-10-25
 
 ### 生命周期对齐 Trae 源码（逆向 workbench.desktop.main.js）

@@ -33,8 +33,14 @@ window.__ModuleLoader__.load({
        无边框无胶囊，hover 淡底，容器 gap 6px 左对齐贴输入框上方。 */
     const CSS = `
 .dsh-followup-box {
-  position: fixed;
-  z-index: 40;
+  /* 挂在 conversation.input.overlay 锚点（输入卡顶边、占满卡宽）的上
+     沿：贴锚 bottom:100% 再留 4px 间距——Trae 输入区顶部专属带同位。
+     位置随锚点走，无需手动算矩形。 */
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -193,35 +199,42 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 输入框上方的建议 chip 条；只在「草稿为空 + 有新建议」时渲染。 */
-    function FollowupChips({ useInput, inputActions, sessionId }) {
-      const draft = useInput((state) => state.draft)
+    /* dock 槽位的标准 props 带 inputActions，overlay 槽位没有——用隐形
+       桥接组件在 dock 里捕获（compaction-control 0.1.9 同款模式），
+       视觉则完全交给 overlay 槽位。 */
+    let inputActionsBridge = null
+
+    function InputActionsBridge(props) {
+      React.useEffect(() => {
+        inputActionsBridge = props.inputActions ?? null
+        return () => { if (inputActionsBridge === props.inputActions) inputActionsBridge = null }
+      }, [props.inputActions])
+      return null
+    }
+
+    /** 输入卡正上方的建议行（Trae 同位：输入区顶部的专属带）。 */
+    function FollowupChips({ sessionId }) {
       const [items, setItems] = React.useState(null)
       const shownSeq = React.useRef(0)
-      const boxRef = React.useRef(null)
 
-      // 会话切换（inputActions 换实例）时收起，避免把上一个会话的建议带过去。
-      React.useEffect(() => { setItems(null) }, [inputActions])
+      // 会话切换时收起，避免把上一个会话的建议带过去。
+      React.useEffect(() => { setItems(null); shownSeq.current = 0 }, [sessionId])
 
-      // 0.2.4：会话打开/切换时拉一次持久化建议——重启后打开对话仍然显示
-      // 最近一轮的建议（Trae 逻辑：随会话持久化，无时间过期，下一轮替换）。
+      // 会话打开/切换时拉一次持久化建议——重启后打开对话仍然显示最近
+      // 一轮的建议（Trae 逻辑：随会话持久化，无时间过期，下一轮替换）。
+      // Trae 打字时建议保持可见（不做草稿联动隐藏）。
       const fetchLatest = React.useCallback(async () => {
-        if (!inputActions || !sessionId) return
+        if (!sessionId) return
         const data = await fetchJson(`/latest?sessionId=${encodeURIComponent(sessionId)}`)
         if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
         if (data.seq === shownSeq.current) return
         shownSeq.current = data.seq
         setItems(data.suggestions)
-      }, [inputActions, sessionId])
-      React.useEffect(() => { void fetchLatest() }, [inputActions])
-
-      // 用户一改草稿就收起：填入草稿本身也会触发这条，无需单独清理。
-      React.useEffect(() => {
-        if (typeof draft === 'string' && draft.length > 0) setItems(null)
-      }, [draft])
+      }, [sessionId])
+      React.useEffect(() => { void fetchLatest() }, [sessionId])
 
       const load = React.useCallback(async () => {
-        if (!inputActions || !sessionId) return
+        if (!sessionId || !inputActionsBridge) return
         // 0.2.0：日志驱动生成——服务端直读会话日志取最后一轮，不再依赖
         // 到不了插件进程的 agent 事件。
         const data = await fetchJson('/generate', {
@@ -238,7 +251,7 @@ window.__ModuleLoader__.load({
         if (data.seq === shownSeq.current) return
         shownSeq.current = data.seq
         setItems(data.suggestions)
-      }, [inputActions, sessionId])
+      }, [sessionId])
 
       const loadRef = React.useRef(load)
       loadRef.current = load
@@ -263,42 +276,24 @@ window.__ModuleLoader__.load({
        * 先吃下文本）；点气泡图标只填进草稿编辑。绝不静默绕过编辑——
        * 直接发送也会先在输入框里闪现整句，用户看得到发的是什么。
        */
+      /** Trae 行为：点建议直接作为下一条消息发出（先落草稿再 submit，
+       *  Lexical 先吃下文本，输入框里会闪现整句）；发出即收起本行。 */
       const sendSuggestion = (text) => {
-        if (!inputActions) return
-        inputActions.setDraft(text)
+        const actions = inputActionsBridge
+        if (!actions) return
+        setItems(null)
+        actions.setDraft(text)
         window.setTimeout(() => {
-          try { inputActions.submit() } catch { /* fail-silent */ }
+          try { actions.submit() } catch { /* fail-silent */ }
         }, 250)
       }
 
-      // 贴在输入框卡片正上方：卡片顶边往上 10px，随卡片宽度与位置走。
-      const place = () => {
-        const box = boxRef.current
-        const root = composerRoot()
-        if (!box || !root) return
-        const rect = root.getBoundingClientRect()
-        if (rect.width === 0 && rect.height === 0) return
-        box.style.left = `${rect.left}px`
-        box.style.width = `${rect.width}px`
-        box.style.bottom = `${Math.max(12, window.innerHeight - rect.top + 4)}px`
-      }
-
-      React.useEffect(() => {
-        if (!items) return undefined
-        place()
-        window.addEventListener('resize', place)
-        const root = composerRoot()
-        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(place) : null
-        if (root && observer) observer.observe(root)
-        return () => {
-          window.removeEventListener('resize', place)
-          observer?.disconnect()
-        }
-      }, [items])
-
-      if (!inputActions || !items) return null
+      if (items === null) return null
+      // 位置完全交给 dsh 的 conversation.input.overlay 槽位（锚在输入卡
+      // 顶边、占满卡宽——Trae 的输入区顶部专属带同位），容器只负责
+      // 「贴锚上沿 4px、纵向堆叠、左对齐」。
       // Trae 同款：纵向文本链接行，整行点击直接发送；「换一批」同款淡色行收尾。
-      return h('div', { ref: boxRef, className: 'dsh-followup-box' },
+      return h('div', { className: 'dsh-followup-box' },
         items.map((text, index) => h('button', {
           type: 'button',
           key: index,
@@ -324,12 +319,19 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.2.5 active')
+        console.info('[dsh-followup] client 0.3.0 active')
+        // 视觉：overlay 槽位（输入卡顶边专属带，Trae 同位）。
+        ctx.slots.inject('conversation.input.overlay', () => ctx.slots.register({
+          name: 'conversation.input.overlay',
+          id: 'dsh-followup',
+          order: 0,
+        }, FollowupChips))
+        // 隐形桥：dock 槽拿 inputActions（overlay 槽的 props 不带）。
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
-          id: 'dsh-followup',
+          id: 'dsh-followup-bridge',
           order: 60,
-        }, FollowupChips))
+        }, InputActionsBridge))
       },
     }
   },
