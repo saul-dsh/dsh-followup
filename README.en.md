@@ -3,7 +3,7 @@
 [![CI](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml/badge.svg)](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2-3 clickable follow-up prompts float above the composer** — the same interaction as Trae's "smart follow-up recommendations".
+Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2-3 clickable follow-up prompts appear above the composer**, and the transcript reserves room for them instead of being covered. Same interaction as Trae's "smart follow-up recommendations".
 
 ![Follow-up suggestions](docs/chips.png)
 
