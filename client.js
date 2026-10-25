@@ -35,78 +35,73 @@ window.__ModuleLoader__.load({
 .dsh-followup-anchor { display: none; }
 .dsh-followup-box {
   /* 挂在 conversation.chat.turnTail：回合末尾、AI 正文下方、操作图标上方。
-     流式元素，跟对话一起滚动，天然占位——不再靠 padding 补，也不会顶到输入框。 */
+     流式元素，跟对话一起滚动，天然占位。 */
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
   margin: 10px 0 2px;
 }
 @keyframes dsh-followup-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
 }
+/* 卡片式：整条一个圆角块，右侧「发送」按钮有独立底色，再右侧「添加到对话」。 */
 .dsh-followup-item {
   display: inline-flex;
-  align-items: flex-start;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   max-width: 100%;
-  padding: 4px 8px;
+  padding: 5px 6px 5px 12px;
   border: none;
-  border-radius: 4px;
-  background: transparent;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.055);
   color: var(--dsw-alias-label-primary, #DADDE5);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 20px;
   text-align: left;
   cursor: pointer;
-  pointer-events: auto;
   animation: dsh-followup-in 200ms ease-out both;
   transition: background 120ms ease;
 }
-.dsh-followup-item:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(237, 241, 248, 0.1));
-}
-@media (prefers-reduced-motion: reduce) { .dsh-followup-item, .dsh-followup-more { animation: none; } }
-.dsh-followup-item .dsh-followup-arrow {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  margin-top: 4px;
-  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.55));
-}
-.dsh-followup-item .dsh-followup-arrow svg {
-  display: block;
-}
-.dsh-followup-item:hover .dsh-followup-arrow {
-  color: var(--dsw-alias-label-primary, #DADDE5);
-}
+.dsh-followup-item:hover { background: rgba(255, 255, 255, 0.09); }
+@media (prefers-reduced-motion: reduce) { .dsh-followup-item { animation: none; } }
 .dsh-followup-text {
   min-width: 0;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.dsh-followup-more {
+.dsh-followup-send {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.55));
-  font-size: 12px;
-  line-height: 20px;
-  cursor: pointer;
-  pointer-events: auto;
-  animation: dsh-followup-in 200ms ease-out both;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72));
   transition: background 120ms ease, color 120ms ease;
 }
-.dsh-followup-more:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(237, 241, 248, 0.1));
-  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72));
+.dsh-followup-item:hover .dsh-followup-send {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--dsw-alias-label-primary, #DADDE5);
+}
+.dsh-followup-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.5));
+  transition: background 120ms ease, color 120ms ease;
+}
+.dsh-followup-add:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--dsw-alias-label-primary, #DADDE5);
 }
 `
 
@@ -281,18 +276,6 @@ window.__ModuleLoader__.load({
         window.setTimeout(() => { void loadRef.current() }, FETCH_DELAY_MS)
       })
 
-      const refresh = async () => {
-        if (!sessionId) return
-        const data = await fetchJson('/refresh', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
-        })
-        if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
-        shownSeq.current = data.seq
-        setItems(data.suggestions)
-      }
-
       /**
        * Trae 同款双区：点正文/箭头直接发送（先落草稿再 submit，让 Lexical
        * 先吃下文本）；点气泡图标只填进草稿编辑。绝不静默绕过编辑——
@@ -310,31 +293,42 @@ window.__ModuleLoader__.load({
         }, 250)
       }
 
+      /** 点气泡图标：只把建议填进草稿，编辑后再发，不直接提交。 */
+      const addToDraft = (text) => {
+        const actions = inputActionsBridge
+        if (!actions) return
+        setItems(null)
+        actions.setDraft(text)
+      }
+
       // 锚点必须常驻：turnTail 每个回合都渲染一次，靠它判断自己是第几个，
       // 只在最后一个回合挂出建议。锚点本身 display:none，不占位。
       return h(React.Fragment, null,
         h('span', { ref: boxRef, className: 'dsh-followup-anchor', 'aria-hidden': true }),
         items !== null && isLatestTurn
           ? h('div', { className: 'dsh-followup-box' },
-            items.map((text, index) => h('button', {
-              type: 'button',
+            items.slice(0, 2).map((text, index) => h('div', {
               key: index,
               className: 'dsh-followup-item',
               title: text,
               onClick: () => sendSuggestion(text),
             },
-            // codicon 同款右箭头（16 viewBox 描边箭头，替代图标字体）
-            h('span', { className: 'dsh-followup-arrow' },
+            h('span', { className: 'dsh-followup-text' }, text),
+            // 右侧「发送」：独立的浅色方块，和 Trae 一致
+            h('span', { className: 'dsh-followup-send' },
               h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
-                h('path', { d: 'M2.5 8h10M9 4.5L12.5 8 9 11.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
-            h('span', { className: 'dsh-followup-text' }, text))),
-            h('button', {
-              type: 'button',
-              className: 'dsh-followup-more',
-              title: '换一批跟进建议',
-              'aria-label': '换一批跟进建议',
-              onClick: () => { void refresh() },
-            }, '↻ 换一批'))
+                h('path', { d: 'M2.5 8h10M9 4.5L12.5 8 9 11.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }))),
+            // 「添加到对话」：只填草稿，所以要挡住冒泡，避免顺带发送
+            h('span', {
+              className: 'dsh-followup-add',
+              title: '添加到对话',
+              onClick: (event) => { event.stopPropagation(); addToDraft(text) },
+            },
+            h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
+              h('circle', { cx: 8, cy: 8, r: 5.6, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.3 }),
+              h('circle', { cx: 5.9, cy: 8, r: 0.85, fill: 'currentColor' }),
+              h('circle', { cx: 8, cy: 8, r: 0.85, fill: 'currentColor' }),
+              h('circle', { cx: 10.1, cy: 8, r: 0.85, fill: 'currentColor' }))))))
           : null)
     }
 

@@ -169,7 +169,7 @@ export const Config = Schema.object({
   /** 回合落定后等多久再生成：缓冲多步回合的中间 idle。 */
   idleDelayMs: Schema.number().default(1200).description('回合结束后的缓冲时间（毫秒）'),
   /** 生成几条建议（最多 3）。 */
-  maxSuggestions: Schema.number().default(3).description('最多生成几条建议（2-3）'),
+  maxSuggestions: Schema.number().default(2).description('最多生成几条建议（1-2）'),
   /** 上下文裁剪：超出截断，控制这条调用的 token 开销。 */
   userChars: Schema.number().default(400).description('用户消息最多带多少字符'),
   assistantChars: Schema.number().default(1200).description('助手回复最多带多少字符'),
@@ -491,7 +491,7 @@ export function apply(ctx, config) {
   /* -- 生成 --------------------------------------------------------- */
 
   async function runGeneration(llm, route, userText, assistantText, signal) {
-    const count = Math.min(3, Math.max(2, Math.round(config.maxSuggestions)))
+    const count = Math.min(2, Math.max(1, Math.round(config.maxSuggestions)))
     // 深度标记内发起：本次生成调用经过 llm/stream 瀑布时，监听器读到
     // 标记即透传——建议生成的 prompt 不会被误缓存为对话轮。
     // reasoningEffort low + maxTokens 2000：真机 04:50 实测 profile 默认

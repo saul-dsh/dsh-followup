@@ -3,7 +3,7 @@
 [![CI](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml/badge.svg)](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-dsh（DeepSeek Harness）的智能跟进推荐插件：**每轮对话结束后，AI 回复下方出现 2-3 条可点击的跟进建议**，就在消息流里，跟对话一起滚动。Trae「智能跟进推荐」同款交互。
+dsh（DeepSeek Harness）的智能跟进推荐插件：**每轮对话结束后，AI 回复下方出现 2 条可点击的跟进建议**，就在消息流里，跟对话一起滚动。Trae「智能跟进推荐」同款交互。
 
 ![追问建议](docs/chips.png)
 
@@ -17,7 +17,6 @@ dsh（DeepSeek Harness）的智能跟进推荐插件：**每轮对话结束后�
 
 - **点击正文 / 箭头**：直接把这句建议发送出去（悬浮提示「发送」）——发送前整句会先在输入框里闪现，看得到发的是什么
 - **点击气泡图标**：只把建议填进输入框草稿，编辑后再发（悬浮提示「添加到对话」）
-- **↻ 换一批**：用同一轮上下文重新生成
 - **✕ 关闭**：本轮不再打扰
 - 只要一开始打字或发送，chip 自动消失
 
@@ -46,7 +45,7 @@ dsh plugin --profile desktop add D:\AIiteams\dsh插件\packages\dsh-followup
 | `provider` / `model` | 跟随会话 | 生成建议用的模型，建议配快模型降低延迟 |
 | `timeoutMs` | `12000` | 单次生成超时 |
 | `idleDelayMs` | `1200` | 回合落定后的缓冲时间 |
-| `maxSuggestions` | `3` | 最多几条（2-3） |
+| `maxSuggestions` | `2` | 最多几条（1-2） |
 | `userChars` / `assistantChars` | `400` / `1200` | 上下文裁剪上限 |
 | `minAssistantChars` | `30` | 助手回复短于此不生成 |
 

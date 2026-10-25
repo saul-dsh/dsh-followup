@@ -3,7 +3,7 @@
 [![CI](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml/badge.svg)](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2-3 clickable follow-up prompts appear under the assistant reply**, inside the message flow, scrolling with the transcript. Same interaction as Trae's "smart follow-up recommendations".
+Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2 clickable follow-up prompts appear under the assistant reply**, inside the message flow, scrolling with the transcript. Same interaction as Trae's "smart follow-up recommendations".
 
 ![Follow-up suggestions](docs/chips.png)
 
@@ -17,7 +17,6 @@ Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant 
 
 - **Click the body / arrow**: sends the suggestion immediately as a new message (tooltip "Send") — the full sentence flashes in the composer first, so you always see what is being sent
 - **Click the speech-bubble icon**: only fills the draft for editing (tooltip "Add to conversation")
-- **↻ refresh**: regenerate from the same turn's context
 - **✕ dismiss**: hide for this turn
 - Chips disappear as soon as you type or send
 
@@ -46,7 +45,7 @@ Restart dsh. No API key configuration needed — generation reuses the credentia
 | `provider` / `model` | follow session | model used to generate suggestions; a fast model is recommended |
 | `timeoutMs` | `12000` | per-generation timeout |
 | `idleDelayMs` | `1200` | buffer after a turn settles |
-| `maxSuggestions` | `3` | max chips (2-3) |
+| `maxSuggestions` | `2` | max chips (2-3) |
 | `userChars` / `assistantChars` | `400` / `1200` | context trimming limits |
 | `minAssistantChars` | `30` | skip very short replies |
 
