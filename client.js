@@ -46,29 +46,27 @@ window.__ModuleLoader__.load({
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: none; }
 }
-/* 照搬 Trae：@byted-icube/ai-modules-chat 的 .welcome-followup-action ——
-   底色 rgba(194,202,242,.1) 带蓝调（不是纯白），悬停 .15，圆角 6px，
-   字号 13px，文字色走 colorDefaultText。 */
+/* 数值取自 Trae 截图的实测：背景 #171717、卡片 #222222，
+   反推白色叠加 11/232 ≈ 0.05；卡片高 36px，圆角 6px，文字 #e5e5e5。 */
 .dsh-followup-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   max-width: 100%;
-  height: 34px;
+  height: 36px;
   padding: 0 8px 0 12px;
   border: none;
   border-radius: 6px;
-  background: rgba(194, 202, 242, 0.10);
-  color: var(--dsw-alias-label-primary, #DADDE5);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e5e5;
   font-size: 13px;
   line-height: 20px;
-  letter-spacing: .039px;
   text-align: left;
   cursor: pointer;
   animation: dsh-followup-in 200ms ease-out both;
   transition: background 120ms ease;
 }
-.dsh-followup-item:hover { background: rgba(194, 202, 242, 0.15); }
+.dsh-followup-item:hover { background: rgba(255, 255, 255, 0.09); }
 @media (prefers-reduced-motion: reduce) { .dsh-followup-item { animation: none; } }
 .dsh-followup-text {
   min-width: 0;
@@ -76,7 +74,6 @@ window.__ModuleLoader__.load({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 右侧「发送」方块：比卡片底再亮一档，同色系 */
 .dsh-followup-send {
   flex: none;
   display: inline-flex;
@@ -84,14 +81,14 @@ window.__ModuleLoader__.load({
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 5px;
-  background: rgba(194, 202, 242, 0.12);
-  color: var(--dsw-alias-label-secondary, rgba(232, 238, 250, 0.72));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #d4d4d4;
   transition: background 120ms ease, color 120ms ease;
 }
 .dsh-followup-item:hover .dsh-followup-send {
-  background: rgba(194, 202, 242, 0.20);
-  color: var(--dsw-alias-label-primary, #DADDE5);
+  background: rgba(255, 255, 255, 0.14);
+  color: #f0f0f0;
 }
 .dsh-followup-add {
   flex: none;
@@ -100,13 +97,13 @@ window.__ModuleLoader__.load({
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 5px;
-  color: var(--dsw-alias-label-tertiary, rgba(232, 238, 250, 0.5));
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.45);
   transition: background 120ms ease, color 120ms ease;
 }
 .dsh-followup-add:hover {
-  background: rgba(194, 202, 242, 0.12);
-  color: var(--dsw-alias-label-primary, #DADDE5);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e5e5;
 }
 `
 
