@@ -3,13 +3,13 @@
 [![CI](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml/badge.svg)](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2-3 clickable follow-up prompts appear above the composer**, and the transcript reserves room for them instead of being covered. Same interaction as Trae's "smart follow-up recommendations".
+Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2-3 clickable follow-up prompts appear under the assistant reply**, inside the message flow, scrolling with the transcript. Same interaction as Trae's "smart follow-up recommendations".
 
 ![Follow-up suggestions](docs/chips.png)
 
 ## What it looks like
 
-- About 1-2 seconds after a reply settles, chips appear above the input box:
+- About 1-2 seconds after a reply settles, chips appear under the reply:
 
   ```
   [ Write option 2, but add more of the male lead → ]  [ Start with option 1 → ]  ↻  ✕

@@ -3,13 +3,13 @@
 [![CI](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml/badge.svg)](https://github.com/saul-dsh/dsh-followup/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-dsh（DeepSeek Harness）的智能跟进推荐插件：**每轮对话结束后，输入框上方出现 2-3 条可点击的跟进建议**，对话内容会自动让出这块空间，不会被盖住。Trae「智能跟进推荐」同款交互。
+dsh（DeepSeek Harness）的智能跟进推荐插件：**每轮对话结束后，AI 回复下方出现 2-3 条可点击的跟进建议**，就在消息流里，跟对话一起滚动。Trae「智能跟进推荐」同款交互。
 
 ![追问建议](docs/chips.png)
 
 ## 效果
 
-- 助手回复落定约 1-2 秒后，输入框上方出现 chip，例如：
+- 助手回复落定约 1-2 秒后，回复正文下方出现 chip，例如：
 
   ```
   [ 按方案 2 写，但增加男主视角的戏份 → ]  [ 先写方案 1 的开头 → ]  ↻  ✕
