@@ -5,6 +5,8 @@
 
 Smart follow-up suggestions for DeepSeek Harness (dsh): **after every assistant turn, 2-3 clickable follow-up prompts float above the composer** — the same interaction as Trae's "smart follow-up recommendations".
 
+![Follow-up suggestions](docs/chips.png)
+
 ## What it looks like
 
 - About 1-2 seconds after a reply settles, chips appear above the input box:
