@@ -232,7 +232,7 @@ function parseSuggestions(text, count) {
 export function apply(ctx, config) {
   if (!config.enabled) return
 
-  void report(`server boot v0.2.3 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
+  void report(`server boot v0.3.2 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
 
   /** 每个 agent 的对话尾部累积：userText 来自 pre-step，assistantText 来自流帧。 */
   const buffers = new WeakMap()

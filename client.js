@@ -343,7 +343,7 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ensureStyle()
-        console.info('[dsh-followup] client 0.3.0 active')
+        console.info('[dsh-followup] client 0.3.2 active')
         // 视觉：turnTail 槽位（回合末尾、AI 正文下方、操作图标上方），
         // 流式占位，跟对话一起滚动。Trae 同款位置。
         ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
