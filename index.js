@@ -42,7 +42,7 @@
 
 import Schema from '@deepseek-ai/schemastery'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -230,9 +230,35 @@ function parseSuggestions(text, count) {
 /* ------------------------------------------------------------------ */
 
 export function apply(ctx, config) {
-  if (!config.enabled) return
+  // 运行时可变副本：POST /settings 改这里，立即生效；显式改过的键持久化
+  // 到 storages、启动时回放（没改过的键继续跟随宿主配置）。
+  const live = { ...config }
+  if (!live.enabled) return
 
-  void report(`server boot v0.3.2 enabled=true minAssistantChars=${config.minAssistantChars} idleDelayMs=${config.idleDelayMs} route=${config.provider || ''}/${config.model || ''}(follow-session)`)
+  // 设置持久化：只落与 config 不同的键，防抖 400ms 原子写。
+  const SETTINGS_KEYS = ['maxSuggestions', 'idleDelayMs', 'timeoutMs', 'minAssistantChars', 'userChars', 'assistantChars']
+  const SETTINGS_PATH = join(homedir(), '.dsh', 'storages', 'dsh-followup', 'settings.json')
+  try {
+    const saved = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'))
+    for (const key of SETTINGS_KEYS) if (saved?.[key] !== undefined) live[key] = saved[key]
+  } catch { /* 无存档：全部跟随配置 */ }
+  let settingsTimer = null
+  const persistSettings = () => {
+    if (settingsTimer) return
+    settingsTimer = setTimeout(() => {
+      settingsTimer = null
+      try {
+        mkdirSync(dirname(SETTINGS_PATH), { recursive: true })
+        const out = {}
+        for (const key of SETTINGS_KEYS) if (live[key] !== config[key]) out[key] = live[key]
+        const tmp = `${SETTINGS_PATH}.tmp`
+        writeFileSync(tmp, JSON.stringify(out, null, 2))
+        renameSync(tmp, SETTINGS_PATH)
+      } catch { /* ignore */ }
+    }, 400)
+  }
+
+  void report(`server boot v0.3.3 enabled=true minAssistantChars=${live.minAssistantChars} idleDelayMs=${live.idleDelayMs} route=${live.provider || ''}/${live.model || ''}(follow-session)`)
 
   /** 每个 agent 的对话尾部累积：userText 来自 pre-step，assistantText 来自流帧。 */
   const buffers = new WeakMap()
@@ -329,7 +355,7 @@ export function apply(ctx, config) {
   }
 
   function configRoute() {
-    return config.provider && config.model ? { provider: config.provider, model: config.model } : null
+    return live.provider && live.model ? { provider: live.provider, model: live.model } : null
   }
 
   function resolveRoute(agent) {
@@ -393,8 +419,8 @@ export function apply(ctx, config) {
     }
     const userText = (buf.userText ?? '').trim()
     const assistantText = (buf.assistantText ?? '').trim()
-    if (!userText || assistantText.length < config.minAssistantChars) {
-      void report(`idle skip buf#${buf.id} agent=${agentConstructorName(agent)} userLen=${userText.length} assistantLen=${assistantText.length} (need user>0 & assistant>=${config.minAssistantChars})`)
+    if (!userText || assistantText.length < live.minAssistantChars) {
+      void report(`idle skip buf#${buf.id} agent=${agentConstructorName(agent)} userLen=${userText.length} assistantLen=${assistantText.length} (need user>0 & assistant>=${live.minAssistantChars})`)
       return
     }
     // 缓冲片刻：多步回合的步骤之间也会闪现 idle，期间回到 running 就作废。
@@ -402,7 +428,7 @@ export function apply(ctx, config) {
     pendingTimer = setTimeout(() => {
       pendingTimer = 0
       void generateFor(agent, buf, userText, assistantText)
-    }, Math.max(200, config.idleDelayMs))
+    }, Math.max(200, live.idleDelayMs))
   })
 
   /* -- 主通道：llm/stream 瀑布旁路捕获（0.2.3，借鉴 dsh-cost-meter） -- */
@@ -491,7 +517,7 @@ export function apply(ctx, config) {
   /* -- 生成 --------------------------------------------------------- */
 
   async function runGeneration(llm, route, userText, assistantText, signal) {
-    const count = Math.min(2, Math.max(1, Math.round(config.maxSuggestions)))
+    const count = Math.min(2, Math.max(1, Math.round(live.maxSuggestions)))
     // 深度标记内发起：本次生成调用经过 llm/stream 瀑布时，监听器读到
     // 标记即透传——建议生成的 prompt 不会被误缓存为对话轮。
     // reasoningEffort low + maxTokens 2000：真机 04:50 实测 profile 默认
@@ -538,7 +564,7 @@ export function apply(ctx, config) {
     }
     const controller = new AbortController()
     buf.controller = controller
-    const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
+    const timer = setTimeout(() => controller.abort(new Error('followup timeout')), live.timeoutMs)
     // 根作用域没声明 llm inject 时属性访问直接抛（真机 07:41 实证）；
     // 捕住降级——cache/日志路径不受影响。
     let eventLlm = null
@@ -591,6 +617,28 @@ export function apply(ctx, config) {
           res.end(JSON.stringify(body))
         }
         const path = (req.url ?? '').split('?')[0].replace(/^\/api\/dsh-followup/, '')
+        if (path === '/settings' && req.method === 'GET') {
+          send(200, { ...live })
+          return
+        }
+        // 运行时改参数：白名单字段，provider/model 不在其中（改了要重建路由）。
+        if (path === '/settings' && req.method === 'POST') {
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          let body
+          try { body = JSON.parse(raw) } catch { send(400, { error: 'invalid-json' }); return }
+          const numeric = { maxSuggestions: [1, 3], idleDelayMs: [200, 10000], timeoutMs: [1000, 120000], minAssistantChars: [0, 500], userChars: [100, 4000], assistantChars: [100, 8000] }
+          for (const [key, [min, max]] of Object.entries(numeric)) {
+            if (body[key] === undefined) continue
+            const value = Number(body[key])
+            if (!Number.isFinite(value)) continue
+            live[key] = Math.min(max, Math.max(min, Math.round(value)))
+          }
+          persistSettings()
+          send(200, { ...live })
+          return
+        }
+
 
         // 客户端在每次「生成中 → 空闲」后拉取；seq 相同就静默忽略。
         // Trae 逻辑：建议随会话持久化、无时间过期，只被下一轮替换或清除。
@@ -636,7 +684,7 @@ export function apply(ctx, config) {
           }
           const source = cached ? 'cache' : 'log'
           const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(new Error('followup timeout')), config.timeoutMs)
+          const timer = setTimeout(() => controller.abort(new Error('followup timeout')), live.timeoutMs)
           try {
             void report(`generate(${source}) start route=${route.provider}/${route.model} userLen=${turn.userText.length} assistantLen=${turn.assistantText.length}`)
             const suggestions = await runGeneration(webCtx.llm, route, turn.userText, turn.assistantText, controller.signal)
