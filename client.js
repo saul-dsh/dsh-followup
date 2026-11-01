@@ -193,6 +193,17 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** 关键决策点留痕：chips 不出现时能从 snippets-debug.log 分辨断在哪一环。 */
+    function diag(message) {
+      try {
+        void fetch('/api/dsh-superinput/snippets/diag', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: `followup: ${String(message).slice(0, 300)}` }),
+        }).catch(() => { /* ignore */ })
+      } catch { /* ignore */ }
+    }
+
     /* dock 槽位的标准 props 带 inputActions，overlay 槽位没有——用隐形
        桥接组件在 dock 里捕获（compaction-control 0.1.9 同款模式），
        视觉则完全交给 overlay 槽位。 */
@@ -215,12 +226,24 @@ window.__ModuleLoader__.load({
       const [isLatestTurn, setIsLatestTurn] = React.useState(false)
 
       React.useEffect(() => {
-        const box = boxRef.current
-        if (!box) return
+        diag(`chips mount session=${sessionId ? String(sessionId).slice(0, 8) : 'none'}`)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])
+
+      React.useEffect(() => {
+        // box 必须每次 check 现读：流式重渲染会重建回合尾容器，挂载时捕获的
+        // 节点会脱离 DOM，闭包里拿旧节点 contains 恒 false = 实例永久失明，
+        // chips 就再也不出现（真机 0.3.3 实测）。
         const check = () => {
+          const box = boxRef.current
+          if (!box) return
           const tails = document.querySelectorAll('[data-turn-tail]')
           const last = tails[tails.length - 1]
-          setIsLatestTurn(Boolean(last && last.contains(box)))
+          const next = Boolean(last && last.contains(box))
+          setIsLatestTurn((prev) => {
+            if (prev !== next) diag(`turn-tail latest=${next} tails=${tails.length}`)
+            return next
+          })
         }
         check()
         const observer = new MutationObserver(check)
@@ -235,8 +258,9 @@ window.__ModuleLoader__.load({
       // 一轮的建议（Trae 逻辑：随会话持久化，无时间过期，下一轮替换）。
       // Trae 打字时建议保持可见（不做草稿联动隐藏）。
       const fetchLatest = React.useCallback(async () => {
-        if (!sessionId) return
+        if (!sessionId) { diag('latest skip: no sessionId'); return }
         const data = await fetchJson(`/latest?sessionId=${encodeURIComponent(sessionId)}`)
+        diag(`latest resp seq=${data?.seq ?? 'null'} n=${data?.suggestions?.length ?? 0}`)
         if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) return
         if (data.seq === shownSeq.current) return
         shownSeq.current = data.seq
@@ -250,14 +274,18 @@ window.__ModuleLoader__.load({
       }, [sessionId, isLatestTurn, fetchLatest])
 
       const load = React.useCallback(async () => {
-        if (!sessionId || !inputActionsBridge) return
+        if (!sessionId || !inputActionsBridge) {
+          diag(`generate skip: session=${sessionId ? String(sessionId).slice(0, 8) : 'none'} bridge=${Boolean(inputActionsBridge)}`)
+          return
+        }
         // 0.2.0：日志驱动生成——服务端直读会话日志取最后一轮，不再依赖
-        // 到不了插件进程的 agent 事件。
+        // 到不了插件进程的 agent 事件（现走 llm/stream 捕获缓存 + 日志兜底）。
         const data = await fetchJson('/generate', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ sessionId }),
         })
+        diag(`generate resp seq=${data?.seq ?? 'null'} n=${data?.suggestions?.length ?? 0}`)
         // Trae 逻辑：建议属于本轮响应——本轮没有新建议（生成失败/为空/
         // 无可跟进内容）就清掉旧建议，而不是继续显示上一轮的。
         if (!data || !Array.isArray(data.suggestions) || data.suggestions.length === 0) {
@@ -276,6 +304,7 @@ window.__ModuleLoader__.load({
       const latestRef = React.useRef(isLatestTurn)
       latestRef.current = isLatestTurn
       useTurnEnd(() => {
+        diag(`turn-end fired latest=${latestRef.current}`)
         if (!latestRef.current) return
         window.setTimeout(() => { void loadRef.current() }, FETCH_DELAY_MS)
       })

@@ -2,6 +2,20 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.4] - 2026-11-01
+
+### 修复：流式回合中 chips 实时不渲染（stale-box 竞态）
+
+- **真机实锤（CUA 四轮实测定位）**：`isLatestTurn` 的 effect 在挂载时把
+  `boxRef.current` 捕获进闭包；流式重渲染重建回合尾容器后，闭包里的节点已
+  脱离 DOM，`last.contains(box)` 恒 false → 实例永久失明——轻则 turn-end
+  触发被 latest=false 挡掉（不 POST），重则 generate 响应到手也不渲染，
+  刷新页面才恢复。修法：check() 每次现读 `boxRef.current`，不依赖挂载时
+  捕获的节点。
+- 关键决策点加 diag（走 snippets /diag 落盘）：chips 挂载、turn-tail
+  latest 翻转、latest/generate 响应、turn-end 触发与跳过原因——chips 不
+  出现时能直接从 snippets-debug.log 分辨断在哪一环。
+
 ## [0.3.2] - 2026-10-25
 
 ### 新增
